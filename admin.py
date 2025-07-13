@@ -413,24 +413,7 @@ def handle_admin_callback(update: Update, context: CallbackContext):
                 parse_mode='Markdown'
             )
             
-            # Уведомляем админов о массовом действии
-            admin_message = (
-                "🏠 **МАССОВАЯ ОТМЕТКА О ПРИБЫТИИ!**\n\n"
-                "👑 Выполнил: {}\n"
-                "📊 Обновлено: {} пользователей\n"
-                "⏰ Время: {}\n"
-                "🔒 Действие зафиксировано".format(
-                    query.from_user.full_name,
-                    updated_count,
-                    format_datetime(get_current_time())
-                )
-            )
-            
-            # Отправляем уведомление всем админам
-            from notifications import notify_admins
-            from telegram import Bot
-            bot = Bot(token=query.bot.token)
-            notify_admins(bot, admin_message)
+
             
         except Exception as e:
             query.edit_message_text(
