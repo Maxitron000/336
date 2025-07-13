@@ -1,10 +1,9 @@
 python-telegram-bot==20.7
 python-dotenv==1.0.0
+pytz==2024.1
 pandas==2.1.4
 openpyxl==3.1.2
-Pillow==10.1.0
-pytz==2023.3
-schedule==1.2.0
-asyncio
-logging
-sqlite3
+reportlab==4.0.9
+matplotlib==3.8.2
+pillow==10.2.0
+aiofiles==23.2.1
