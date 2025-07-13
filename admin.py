@@ -1,4 +1,4 @@
-THIS SHOULD BE A LINTER ERRORfrom telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from database import get_all_users, get_all_logs, clear_logs, get_daily_stats
 from keyboards import (
@@ -6,6 +6,7 @@ from keyboards import (
     admin_export_keyboard,
     admin_danger_keyboard,
     confirm_danger_keyboard,
+    double_confirm_danger_keyboard,
     admin_manage_users_keyboard,
     admin_back_keyboard
 )
@@ -32,40 +33,94 @@ def handle_admin_callback(update: Update, context: CallbackContext):
 
     if data == 'admin_panel' or data == 'admin_back':
         query.edit_message_text(
-            "👑 Административное меню:",
-            reply_markup=admin_menu_keyboard()
+            "👑 **АДМИН-ПАНЕЛЬ**\n\n"
+            "🎛️ Добро пожаловать в центр управления!\n"
+            "🔧 Здесь вы можете управлять всеми функциями системы\n"
+            "📊 Просматривать отчеты и статистику\n"
+            "⚙️ Настраивать параметры работы\n\n"
+            "⚡ Выберите раздел:",
+            reply_markup=admin_menu_keyboard(),
+            parse_mode='Markdown'
         )
 
     elif data == 'admin_manage':
         query.edit_message_text(
-            "👥 Управление личным составом:",
-            reply_markup=admin_manage_users_keyboard()
+            "👥 **УПРАВЛЕНИЕ ЛИЧНЫМ СОСТАВОМ**\n\n"
+            "🔧 Здесь вы можете:\n"
+            "📝 Просматривать список всех бойцов\n"
+            "➕ Добавлять новых сотрудников\n"
+            "✏️ Редактировать данные\n"
+            "🗑️ Удалять неактивных пользователей\n\n"
+            "⚡ Выберите действие:",
+            reply_markup=admin_manage_users_keyboard(),
+            parse_mode='Markdown'
         )
 
     elif data == 'admin_logs':
         logs = get_all_logs()[:10]
         if not logs:
             query.edit_message_text(
-                "📜 В журнале пока нет записей",
-                reply_markup=admin_back_keyboard()
+                "📜 **ЖУРНАЛ ДЕЙСТВИЙ**\n\n"
+                "🔍 В журнале пока нет записей\n"
+                "📝 Записи появятся после действий пользователей\n"
+                "⏰ Система готова к работе",
+                reply_markup=admin_back_keyboard(),
+                parse_mode='Markdown'
             )
             return
 
-        log_text = "Последние действия в системе:\n\n"
-        for log in logs:
-            log_text += (f"{format_datetime(log['timestamp'])} | "
-                         f"{log['full_name']} | {log['action']} | "
-                         f"{log['location']}\n")
+        log_text = "📜 **ЖУРНАЛ ДЕЙСТВИЙ** (последние 10)\n\n"
+        
+        for i, log in enumerate(logs, 1):
+            # Определяем эмодзи для действий
+            action_emoji = "🏠" if log['action'] == "Прибыл" else "🚶‍♂️"
+            
+            # Эмодзи для локаций
+            location_emoji = ""
+            if log['location']:
+                location_map = {
+                    "Поликлиника": "🏥",
+                    "ОБРМП": "⚓",
+                    "Калининград": "🌆",
+                    "Магазин": "🛒",
+                    "Столовая": "🍲",
+                    "Госпиталь": "🏨",
+                    "Рабочка": "⚙️",
+                    "ВВК": "🩺",
+                    "МФЦ": "🏛️",
+                    "Патруль": "🚓",
+                    "В расположение": "🏠"
+                }
+                location_emoji = location_map.get(log['location'], "📍")
+            
+            log_text += f"{i}. {action_emoji} **{log['full_name']}** - {log['action']}\n"
+            log_text += f"   ⏰ {format_datetime(log['timestamp'])}\n"
+            
+            if log['location']:
+                log_text += f"   📍 {location_emoji} {log['location']}\n"
+            
+            if log['comment']:
+                log_text += f"   💬 {log['comment']}\n"
+            
+            log_text += "\n"
 
         query.edit_message_text(
             log_text,
-            reply_markup=admin_back_keyboard()
+            reply_markup=admin_back_keyboard(),
+            parse_mode='Markdown'
         )
 
     elif data == 'admin_export':
         query.edit_message_text(
-            "💾 Экспорт данных:\nВыберите формат:",
-            reply_markup=admin_export_keyboard()
+            "💾 **ЭКСПОРТ ДАННЫХ**\n\n"
+            "📊 Выберите формат для экспорта:\n"
+            "📄 CSV - для таблиц\n"
+            "📋 Excel - для отчетов\n"
+            "📑 PDF - для печати\n"
+            "🗂️ Все форматы - полный комплект\n\n"
+            "⚡ Выберите формат:",
+            reply_markup=admin_export_keyboard(),
+            parse_mode='Markdown'
         )
 
     elif data.startswith('export_'):
@@ -74,8 +129,12 @@ def handle_admin_callback(update: Update, context: CallbackContext):
 
         if not logs:
             query.edit_message_text(
-                "❌ Нет данных для экспорта за сегодня!",
-                reply_markup=admin_back_keyboard()
+                "❌ **НЕТ ДАННЫХ ДЛЯ ЭКСПОРТА!**\n\n"
+                "📊 За сегодня нет записей в журнале\n"
+                "📝 Данные появятся после действий пользователей\n"
+                "⏰ Попробуйте позже",
+                reply_markup=admin_back_keyboard(),
+                parse_mode='Markdown'
             )
             return
 
@@ -97,105 +156,274 @@ def handle_admin_callback(update: Update, context: CallbackContext):
                 file_type = "все форматы"
 
             query.edit_message_text(
-                f"✅ Экспорт в {file_type} выполнен успешно!\n"
-                f"Файлы сохранены в: {file_path}",
-                reply_markup=admin_back_keyboard()
+                f"✅ **ЭКСПОРТ ВЫПОЛНЕН УСПЕШНО!**\n\n"
+                f"📊 Формат: {file_type}\n"
+                f"📁 Файлы сохранены в: {file_path}\n"
+                f"⏰ Время: {format_datetime(get_current_time())}\n"
+                f"👤 Выполнил: {user.full_name}",
+                reply_markup=admin_back_keyboard(),
+                parse_mode='Markdown'
             )
         except Exception as e:
             query.edit_message_text(
-                f"❌ Ошибка экспорта: {str(e)}",
-                reply_markup=admin_back_keyboard()
+                f"❌ **ОШИБКА ЭКСПОРТА!**\n\n"
+                f"💥 Причина: {str(e)}\n"
+                f"🔧 Обратитесь к администратору\n"
+                f"📋 Попробуйте другой формат",
+                reply_markup=admin_back_keyboard(),
+                parse_mode='Markdown'
             )
 
     elif data == 'admin_summary':
         today = get_today_date()
         stats = get_daily_stats(today)
+        all_users = get_all_users()
 
-        summary = f"📊 Сводка за {today}:\n\n"
-        summary += "📍 Распределение по локациям:\n"
+        summary = f"📊 **СВОДКА ПО ЛИЧНОМУ СОСТАВУ**\n"
+        summary += f"� Дата: {today}\n"
+        summary += f"⏰ Время: {format_datetime(get_current_time())}\n\n"
 
-        for stat in stats:
-            summary += f"{stat[0]}: {stat[1]} чел.\n"
+        # Группировка по статусам
+        in_base = [u for u in all_users if u['status'] == 'В расположении']
+        out_base = [u for u in all_users if u['status'] == 'Вне базы']
+        unknown = [u for u in all_users if u['status'] == 'unknown']
 
-        in_base = [u for u in get_all_users() if u['status'] == 'В расположении']
-        out_base = [u for u in get_all_users() if u['status'] == 'Вне базы']
+        summary += "📈 **ОБЩАЯ СТАТИСТИКА:**\n"
+        summary += f"👥 Всего зарегистрировано: {len(all_users)} чел.\n"
+        summary += f"🏠 В расположении: {len(in_base)} чел.\n"
+        summary += f"🚶‍♂️ Вне базы: {len(out_base)} чел.\n"
+        summary += f"❓ Статус неизвестен: {len(unknown)} чел.\n\n"
 
-        summary += f"\n🏠 В расположении: {len(in_base)} чел."
-        summary += f"\n🚶‍♂️ Вне базы: {len(out_base)} чел."
+        # Детальная разбивка по локациям для тех, кто вне базы
+        if out_base:
+            summary += "📍 **РАСПРЕДЕЛЕНИЕ ПО ЛОКАЦИЯМ:**\n"
+            
+            # Группируем по локациям
+            location_count = {}
+            for user in out_base:
+                location = user['location'] or 'Неизвестно'
+                location_count[location] = location_count.get(location, 0) + 1
+            
+            # Эмодзи для локаций
+            location_emojis = {
+                "Поликлиника": "🏥",
+                "ОБРМП": "⚓",
+                "Калининград": "🌆",
+                "Магазин": "🛒",
+                "Столовая": "🍲",
+                "Госпиталь": "🏨",
+                "Рабочка": "⚙️",
+                "ВВК": "🩺",
+                "МФЦ": "🏛️",
+                "Патруль": "🚓",
+                "Неизвестно": "❓"
+            }
+            
+            for location, count in sorted(location_count.items()):
+                emoji = location_emojis.get(location, "📍")
+                summary += f"{emoji} {location}: {count} чел.\n"
+            
+            summary += "\n"
+
+        # Список тех, кто в расположении
+        if in_base:
+            summary += "🏠 **В РАСПОЛОЖЕНИИ:**\n"
+            for user in in_base:
+                summary += f"✅ {user['full_name']}\n"
+            summary += "\n"
+
+        # Активность за сегодня
+        if stats:
+            summary += "📊 **АКТИВНОСТЬ ЗА СЕГОДНЯ:**\n"
+            for stat in stats:
+                summary += f"📝 {stat[0]}: {stat[1]} действий\n"
+        else:
+            summary += "📊 **АКТИВНОСТЬ ЗА СЕГОДНЯ:**\n"
+            summary += "📝 Пока нет записей\n"
 
         query.edit_message_text(
             summary,
-            reply_markup=admin_back_keyboard()
+            reply_markup=admin_back_keyboard(),
+            parse_mode='Markdown'
         )
 
     elif data == 'admin_danger':
         query.edit_message_text(
-            "⚠️ Опасная зона:\nВыберите действие:",
-            reply_markup=admin_danger_keyboard()
+            "🚨 **ОПАСНАЯ ЗОНА**\n\n"
+            "⚠️ Здесь находятся критические функции!\n"
+            "🔥 Действия могут быть НЕОБРАТИМЫМИ!\n"
+            "🔒 Все операции логируются!\n\n"
+            "⚡ Выберите действие:",
+            reply_markup=admin_danger_keyboard(),
+            parse_mode='Markdown'
         )
 
     elif data == 'danger_clear_logs':
         query.edit_message_text(
-            "❌ Вы уверены, что хотите очистить весь журнал действий?\n"
-            "Это действие нельзя отменить!",
-            reply_markup=confirm_danger_keyboard('clear_logs')
+            "⚠️ **ВНИМАНИЕ! КРИТИЧЕСКОЕ ДЕЙСТВИЕ!**\n\n"
+            "🗑️ Вы хотите очистить весь журнал действий?\n"
+            "❌ Все записи будут удалены БЕЗВОЗВРАТНО!\n"
+            "📊 Восстановление будет невозможно!\n"
+            "🔒 Это действие логируется!\n\n"
+            "⚠️ Подтвердите первый шаг:",
+            reply_markup=confirm_danger_keyboard('clear_logs'),
+            parse_mode='Markdown'
         )
 
     elif data == 'confirm_clear_logs':
+        query.edit_message_text(
+            "🚨 **ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ!**\n\n"
+            "💥 Вы ТОЧНО хотите УДАЛИТЬ ВСЕ записи?\n"
+            "🗑️ Журнал будет полностью очищен!\n"
+            "⏰ Вся история действий исчезнет!\n"
+            "📋 Все отчеты станут недоступны!\n\n"
+            "🔥 **ДЕЙСТВИЕ НЕОБРАТИМО!**",
+            reply_markup=double_confirm_danger_keyboard('clear_logs'),
+            parse_mode='Markdown'
+        )
+
+    elif data == 'execute_clear_logs':
         try:
             clear_logs()
+            
+            # Логируем критическое действие
+            import logging
+            logging.warning(f"CRITICAL: Journal cleared by admin {user.id} ({user.full_name})")
+            
             query.edit_message_text(
-                "✅ Журнал действий полностью очищен!",
-                reply_markup=admin_back_keyboard()
+                "✅ **ЖУРНАЛ ПОЛНОСТЬЮ ОЧИЩЕН!**\n\n"
+                "🗑️ Все записи удалены\n"
+                "⏰ Время очистки: {}\n"
+                "👤 Выполнил: {}\n"
+                "🔒 Действие зафиксировано в логах".format(
+                    format_datetime(get_current_time()),
+                    user.full_name
+                ),
+                reply_markup=admin_back_keyboard(),
+                parse_mode='Markdown'
             )
         except Exception as e:
             query.edit_message_text(
-                f"❌ Ошибка очистки журнала: {str(e)}",
-                reply_markup=admin_back_keyboard()
+                f"❌ **ОШИБКА ОЧИСТКИ ЖУРНАЛА!**\n\n"
+                f"💥 Причина: {str(e)}\n"
+                f"🔧 Обратитесь к администратору",
+                reply_markup=admin_back_keyboard(),
+                parse_mode='Markdown'
             )
 
     elif data == 'danger_reset_statuses':
         query.edit_message_text(
-            "❌ Вы уверены, что хотите сбросить все статусы?\n"
-            "Все пользователи будут помечены как 'неизвестно'!",
-            reply_markup=confirm_danger_keyboard('reset_statuses')
+            "⚠️ **ВНИМАНИЕ! МАССОВОЕ ДЕЙСТВИЕ!**\n\n"
+            "♻️ Вы хотите сбросить все статусы?\n"
+            "👥 Все пользователи станут 'неизвестно'!\n"
+            "📊 Текущие локации будут очищены!\n"
+            "🔒 Это действие логируется!\n\n"
+            "⚠️ Подтвердите первый шаг:",
+            reply_markup=confirm_danger_keyboard('reset_statuses'),
+            parse_mode='Markdown'
         )
 
     elif data == 'confirm_reset_statuses':
+        query.edit_message_text(
+            "🚨 **ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ!**\n\n"
+            "💥 Вы ТОЧНО хотите СБРОСИТЬ ВСЕ статусы?\n"
+            "♻️ Все бойцы станут 'неизвестно'!\n"
+            "📍 Все локации будут очищены!\n"
+            "📊 Статистика собьется!\n\n"
+            "🔥 **ДЕЙСТВИЕ НЕОБРАТИМО!**",
+            reply_markup=double_confirm_danger_keyboard('reset_statuses'),
+            parse_mode='Markdown'
+        )
+
+    elif data == 'execute_reset_statuses':
         try:
             reset_all_statuses()
+            
+            # Логируем критическое действие
+            import logging
+            logging.warning(f"CRITICAL: All statuses reset by admin {user.id} ({user.full_name})")
+            
             query.edit_message_text(
-                "✅ Статусы всех пользователей сброшены!",
-                reply_markup=admin_back_keyboard()
+                "✅ **СТАТУСЫ ВСЕХ ПОЛЬЗОВАТЕЛЕЙ СБРОШЕНЫ!**\n\n"
+                "♻️ Все статусы обнулены\n"
+                "📍 Все локации очищены\n"
+                "⏰ Время сброса: {}\n"
+                "👤 Выполнил: {}\n"
+                "🔒 Действие зафиксировано в логах".format(
+                    format_datetime(get_current_time()),
+                    user.full_name
+                ),
+                reply_markup=admin_back_keyboard(),
+                parse_mode='Markdown'
             )
         except Exception as e:
             query.edit_message_text(
-                f"❌ Ошибка сброса статусов: {str(e)}",
-                reply_markup=admin_back_keyboard()
+                f"❌ **ОШИБКА СБРОСА СТАТУСОВ!**\n\n"
+                f"💥 Причина: {str(e)}\n"
+                f"🔧 Обратитесь к администратору",
+                reply_markup=admin_back_keyboard(),
+                parse_mode='Markdown'
             )
 
     elif data == 'danger_mark_all_arrived':
         query.edit_message_text(
-            "🏠 Вы уверены, что хотите отметить всех прибывшими?\n"
-            "Все пользователи будут помечены как 'В расположении'!",
-            reply_markup=confirm_danger_keyboard('mark_all_arrived')
+            "⚠️ **ВНИМАНИЕ! МАССОВОЕ ДЕЙСТВИЕ!**\n\n"
+            "🏠 Вы хотите отметить всех прибывшими?\n"
+            "👥 Все пользователи станут 'В расположении'!\n"
+            "📊 Изменятся все статусы!\n"
+            "📝 Будут созданы записи в журнале!\n"
+            "🔒 Это действие логируется!\n\n"
+            "⚠️ Подтвердите первый шаг:",
+            reply_markup=confirm_danger_keyboard('mark_all_arrived'),
+            parse_mode='Markdown'
         )
 
     elif data == 'confirm_mark_all_arrived':
+        query.edit_message_text(
+            "🚨 **ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ!**\n\n"
+            "💥 Вы ТОЧНО хотите ОТМЕТИТЬ ВСЕХ прибывшими?\n"
+            "🏠 Все бойцы станут 'В расположении'!\n"
+            "📝 Будет создано много записей в журнале!\n"
+            "📊 Статистика изменится!\n\n"
+            "🔥 **ДЕЙСТВИЕ НЕОБРАТИМО!**",
+            reply_markup=double_confirm_danger_keyboard('mark_all_arrived'),
+            parse_mode='Markdown'
+        )
+
+    elif data == 'execute_mark_all_arrived':
         try:
             updated_count = mark_all_arrived()
+            
+            # Логируем критическое действие
+            import logging
+            logging.warning(f"CRITICAL: Mass arrival marked by admin {user.id} ({user.full_name}), updated {updated_count} users")
+            
             query.edit_message_text(
-                f"✅ Отметка о прибытии выполнена!\n"
-                f"Обновлено статусов: {updated_count}",
-                reply_markup=admin_back_keyboard()
+                "✅ **МАССОВАЯ ОТМЕТКА О ПРИБЫТИИ ВЫПОЛНЕНА!**\n\n"
+                "🏠 Все отмечены как прибывшие\n"
+                "📊 Обновлено статусов: {}\n"
+                "⏰ Время операции: {}\n"
+                "👤 Выполнил: {}\n"
+                "🔒 Действие зафиксировано в логах".format(
+                    updated_count,
+                    format_datetime(get_current_time()),
+                    user.full_name
+                ),
+                reply_markup=admin_back_keyboard(),
+                parse_mode='Markdown'
             )
             
             # Уведомляем админов о массовом действии
             admin_message = (
-                f"🏠 Массовая отметка о прибытии!\n"
-                f"👑 Выполнил: {query.from_user.full_name}\n"
-                f"📊 Обновлено: {updated_count} пользователей\n"
-                f"⏰ Время: {format_datetime(get_current_time())}"
+                "🏠 **МАССОВАЯ ОТМЕТКА О ПРИБЫТИИ!**\n\n"
+                "👑 Выполнил: {}\n"
+                "📊 Обновлено: {} пользователей\n"
+                "⏰ Время: {}\n"
+                "🔒 Действие зафиксировано".format(
+                    query.from_user.full_name,
+                    updated_count,
+                    format_datetime(get_current_time())
+                )
             )
             
             # Отправляем уведомление всем админам
@@ -206,8 +434,11 @@ def handle_admin_callback(update: Update, context: CallbackContext):
             
         except Exception as e:
             query.edit_message_text(
-                f"❌ Ошибка отметки прибытия: {str(e)}",
-                reply_markup=admin_back_keyboard()
+                f"❌ **ОШИБКА МАССОВОЙ ОТМЕТКИ!**\n\n"
+                f"💥 Причина: {str(e)}\n"
+                f"🔧 Обратитесь к администратору",
+                reply_markup=admin_back_keyboard(),
+                parse_mode='Markdown'
             )
 
 def is_admin(tg_id):

@@ -5,8 +5,8 @@ from database import get_all_users
 def main_menu_keyboard(show_admin_button=False):
     buttons = [
         [
-            InlineKeyboardButton("Прибыл", callback_data='arrived'),
-            InlineKeyboardButton("Убыл", callback_data='depart')
+            InlineKeyboardButton("🏠 Прибыл", callback_data='arrived'),
+            InlineKeyboardButton("🚶‍♂️ Убыл", callback_data='depart')
         ],
         [InlineKeyboardButton("📜 История действий", callback_data='history')]
     ]
@@ -35,14 +35,14 @@ def locations_keyboard():
         if row:
             buttons.append(row)
 
-    buttons.append([InlineKeyboardButton("« Назад", callback_data='back')])
+    buttons.append([InlineKeyboardButton("🔙 Назад", callback_data='back')])
     return InlineKeyboardMarkup(buttons)
 
 def comment_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Добавить комментарий", callback_data='add_comment')],
         [InlineKeyboardButton("❌ Без комментария", callback_data='no_comment')],
-        [InlineKeyboardButton("« Назад", callback_data='back')]
+        [InlineKeyboardButton("🔙 Назад", callback_data='back')]
     ])
 
 def history_keyboard(expanded=False):
@@ -61,23 +61,23 @@ def admin_menu_keyboard():
         [InlineKeyboardButton("💾 Экспорт данных", callback_data='admin_export')],
         [InlineKeyboardButton("📊 Сводка", callback_data='admin_summary')],
         [InlineKeyboardButton("⚙️ Настройки", callback_data='admin_settings')],
-        [InlineKeyboardButton("⚠️ Опасная зона", callback_data='admin_danger')],
-        [InlineKeyboardButton("« Главное меню", callback_data='back_main')]
+        [InlineKeyboardButton("🚨 Опасная зона", callback_data='admin_danger')],
+        [InlineKeyboardButton("🏠 Главное меню", callback_data='back_main')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def admin_back_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("« Назад", callback_data='admin_back')]
+        [InlineKeyboardButton("🔙 Назад", callback_data='admin_back')]
     ])
 
 def admin_export_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("CSV", callback_data='export_csv')],
-        [InlineKeyboardButton("Excel", callback_data='export_excel')],
-        [InlineKeyboardButton("PDF", callback_data='export_pdf')],
-        [InlineKeyboardButton("Все форматы", callback_data='export_all')],
-        [InlineKeyboardButton("« Назад", callback_data='admin_export')]
+        [InlineKeyboardButton("📄 CSV", callback_data='export_csv')],
+        [InlineKeyboardButton("📋 Excel", callback_data='export_excel')],
+        [InlineKeyboardButton("📑 PDF", callback_data='export_pdf')],
+        [InlineKeyboardButton("🗂️ Все форматы", callback_data='export_all')],
+        [InlineKeyboardButton("🔙 Назад", callback_data='admin_back')]
     ])
 
 def admin_danger_keyboard():
@@ -90,22 +90,39 @@ def admin_danger_keyboard():
 
 def confirm_danger_keyboard(action):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Да, выполнить", callback_data=f'confirm_{action}')],
+        [InlineKeyboardButton("⚠️ Да, точно выполнить", callback_data=f'confirm_{action}')],
+        [InlineKeyboardButton("❌ Отмена", callback_data='admin_danger')]
+    ])
+
+def double_confirm_danger_keyboard(action):
+    """Двойное подтверждение для особо опасных действий"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚨 ВЫПОЛНИТЬ (необратимо!)", callback_data=f'execute_{action}')],
         [InlineKeyboardButton("❌ Отмена", callback_data='admin_danger')]
     ])
 
 def admin_manage_users_keyboard():
     users = get_all_users()
     keyboard = []
+    
+    # Эмодзи для статусов
+    status_emojis = {
+        'В расположении': '🏠',
+        'Вне базы': '🚶‍♂️',
+        'unknown': '❓'
+    }
+    
     for user in users:
+        status_emoji = status_emojis.get(user['status'], '❓')
         keyboard.append([
             InlineKeyboardButton(
-                f"{user['full_name']} ({user['status']})",
+                f"{status_emoji} {user['full_name']} ({user['status']})",
                 callback_data=f"user_{user['id']}"
             )
         ])
+    
     keyboard.append([InlineKeyboardButton("➕ Добавить бойца", callback_data='admin_add_user')])
-    keyboard.append([InlineKeyboardButton("« Назад", callback_data='admin_manage')])
+    keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data='admin_back')])
     return InlineKeyboardMarkup(keyboard)
 
 def admin_back_to_menu():
