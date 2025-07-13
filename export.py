@@ -79,20 +79,15 @@ async def export_to_csv(logs_data: List[Dict], users_data: List[Dict], export_di
             })
         
         # Формируем CSV в памяти
-        output = BytesIO()
-        wrapper = asyncio.get_event_loop().run_in_executor(
-            None, 
-            lambda: csv.DictWriter(output, encoding='utf-8', newline='')
-        )
+        output = io.StringIO()
         
         fieldnames = ['Дата и время', 'ФИО', 'Telegram ID', 'Действие', 'Локация']
-        writer = await wrapper
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
         
         writer.writeheader()
         writer.writerows(export_data)
         
-        wrapper.flush()
-        csv_content = output.getvalue().decode('utf-8')
+        csv_content = output.getvalue()
         
         # Записываем асинхронно
         await asyncio.get_event_loop().run_in_executor(
