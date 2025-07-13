@@ -1,66 +1,38 @@
 #!/bin/bash
 
-# Цвета для вывода
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+# Скрипт для запуска Telegram бота
 
-echo -e "${BLUE}🤖 Запуск Telegram-бота учёта личного состава...${NC}"
-echo "================================================================"
+# Проверяем, что мы находимся в правильной директории
+if [ ! -f "main.py" ]; then
+    echo "❌ Файл main.py не найден. Запустите скрипт из корневой директории проекта."
+    exit 1
+fi
 
-# Проверка файла .env
+# Проверяем наличие .env файла
 if [ ! -f ".env" ]; then
-    echo -e "${RED}❌ Файл .env не найден!${NC}"
-    echo -e "${YELLOW}📝 Создайте файл .env на основе .env.example${NC}"
+    echo "❌ Файл .env не найден. Создайте его на основе .env.example"
     exit 1
 fi
 
-# Проверка зависимостей
-echo -e "${CYAN}📦 Проверка зависимостей...${NC}"
-if ! python3 -c "import telegram, pandas, openpyxl" 2>/dev/null; then
-    echo -e "${RED}❌ Не все зависимости установлены!${NC}"
-    echo -e "${YELLOW}💡 Выполните: pip install -r requirements.txt${NC}"
+# Создаем необходимые директории
+mkdir -p logs data exports config
+
+# Проверяем наличие Python
+if ! command -v python3 &> /dev/null; then
+    echo "❌ Python3 не установлен"
     exit 1
 fi
 
-# Создание необходимых папок
-echo -e "${CYAN}📁 Создание структуры папок...${NC}"
-mkdir -p data config logs exports
-
-# Проверка токена
-echo -e "${CYAN}🔑 Проверка токена бота...${NC}"
-source .env
-if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
-    echo -e "${RED}❌ TELEGRAM_BOT_TOKEN не задан в .env файле!${NC}"
+# Проверяем наличие pip
+if ! command -v pip3 &> /dev/null; then
+    echo "❌ pip3 не установлен"
     exit 1
 fi
 
-# Инициализация базы данных
-echo -e "${CYAN}🗄️ Инициализация базы данных...${NC}"
-python3 -c "from database import init_db; init_db(); print('✅ База данных готова')"
+# Устанавливаем зависимости
+echo "� Устанавливаем зависимости..."
+pip3 install -r requirements.txt
 
-# Проверка файла локаций
-if [ ! -f "data/locations.json" ]; then
-    echo -e "${YELLOW}⚠️ Создание файла локаций...${NC}"
-    python3 -c "from utils import load_locations; load_locations(); print('✅ Файл локаций создан')"
-fi
-
-echo "================================================================"
-echo -e "${GREEN}🚀 Запуск бота...${NC}"
-echo -e "${PURPLE}📊 Логи сохраняются в logs/bot.log${NC}"
-echo -e "${PURPLE}📁 База данных: data/personnel.db${NC}"
-echo -e "${PURPLE}🔧 Локации: data/locations.json${NC}"
-echo -e "${PURPLE}💬 Уведомления: config/notifications.json${NC}"
-echo "================================================================"
-
-# Запуск бота
+# Запускаем бота
+echo "🚀 Запускаем бота..."
 python3 main.py
-
-# Если бот завершился
-echo -e "${RED}⚠️ Бот завершил работу!${NC}"
-echo -e "${YELLOW}📋 Последние строки лога:${NC}"
-tail -10 logs/bot.log

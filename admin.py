@@ -1,650 +1,775 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackContext
-from database import get_all_users, get_all_logs, clear_logs, get_daily_stats, get_logs_by_name_filter, get_logs_by_date
-from keyboards import (
-    admin_menu_keyboard,
-    admin_export_keyboard,
-    admin_danger_keyboard,
-    clear_logs_period_keyboard,
-    confirm_danger_keyboard,
-    double_confirm_danger_keyboard,
-    admin_manage_users_keyboard,
-    admin_back_keyboard,
-    admin_logs_keyboard
+"""
+Админская панель для бота учета персонала
+"""
+
+import logging
+import random
+from datetime import datetime, timedelta
+from telegram import Update
+from telegram.ext import ContextTypes
+from telegram.error import TelegramError
+
+from database import (
+    get_user, get_all_users, add_admin_log, get_admin_logs, 
+    get_location_logs, get_active_users_by_location, get_users_without_location,
+    clear_location_logs, clear_admin_logs, clear_all_locations, mark_all_as_arrived,
+    get_database_stats, delete_user, set_admin_status, get_user_location_history
 )
-from utils import format_datetime, get_today_date, is_action_allowed, get_current_time
-from export import export_to_csv, export_to_excel, export_to_pdf
-import sqlite3
-import os
+from keyboards import (
+    get_admin_keyboard, get_users_keyboard, get_logs_keyboard,
+    get_locations_admin_keyboard, get_export_keyboard, get_manage_keyboard,
+    get_cleanup_keyboard, get_cleanup_period_keyboard, get_mass_arrival_keyboard,
+    get_confirmation_keyboard, get_double_confirmation_keyboard, get_cancel_keyboard,
+    get_pagination_keyboard, get_user_actions_keyboard, get_settings_keyboard,
+    get_notification_settings_keyboard, get_back_keyboard
+)
+from utils import (
+    is_admin, generate_location_summary, generate_log_entry, format_admin_log,
+    get_current_time, format_datetime, get_locations_list, get_confirmation_phrases,
+    get_user_display_name, get_status_indicator, get_bro_phrases
+)
+from export import export_data
 
-DB_NAME = "data/personnel.db"
+logger = logging.getLogger(__name__)
 
-def handle_admin_callback(update: Update, context: CallbackContext):
+async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
+    """Главный обработчик всех админских callback-запросов"""
     query = update.callback_query
-    query.answer()
-    data = query.data
-    user = query.from_user
-
-    if not is_admin(user.id):
-        query.edit_message_text("❌ У вас нет прав администратора!")
+    user_id = query.from_user.id
+    
+    # Проверяем права администратора
+    if not is_admin(user_id):
+        await query.edit_message_text(
+            "❌ У вас нет прав администратора.",
+            reply_markup=get_cancel_keyboard()
+        )
         return
-
-    # Защита от быстрых нажатий
-    if not is_action_allowed(user.id, data):
-        return
-
-    if data == 'admin_panel' or data == 'admin_back':
-        query.edit_message_text(
-            "👑 **АДМИН-ПАНЕЛЬ**\n\n"
-            "🎛️ Добро пожаловать в центр управления!\n"
-            "🔧 Здесь вы можете управлять всеми функциями системы\n"
-            "📊 Просматривать отчеты и статистику\n"
-            "⚙️ Настраивать параметры работы\n\n"
-            "⚡ Выберите раздел:",
-            reply_markup=admin_menu_keyboard(),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'admin_manage':
-        query.edit_message_text(
-            "👥 **УПРАВЛЕНИЕ ЛИЧНЫМ СОСТАВОМ**\n\n"
-            "🔧 Здесь вы можете:\n"
-            "📝 Просматривать список всех бойцов\n"
-            "➕ Добавлять новых сотрудников\n"
-            "✏️ Редактировать данные\n"
-            "🗑️ Удалять неактивных пользователей\n\n"
-            "⚡ Выберите действие:",
-            reply_markup=admin_manage_users_keyboard(),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'admin_logs':
-        query.edit_message_text(
-            "📜 **ЖУРНАЛ ДЕЙСТВИЙ**\n\n"
-            "🔍 Выберите способ просмотра:\n"
-            "📋 Фильтр по фамилии - поиск конкретного сотрудника\n"
-            "📅 Фильтр по дате - записи за определенный день\n"
-            "📜 Показать все - последние 10 записей\n\n"
-            "⚡ Выберите действие:",
-            reply_markup=admin_logs_keyboard(),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'logs_show_all':
-        logs = get_all_logs()[:10]
-        if not logs:
-            query.edit_message_text(
-                "📜 **ЖУРНАЛ ДЕЙСТВИЙ**\n\n"
-                "🔍 В журнале пока нет записей\n"
-                "📝 Записи появятся после действий пользователей\n"
-                "⏰ Система готова к работе",
-                reply_markup=admin_logs_keyboard(),
-                parse_mode='Markdown'
-            )
-            return
-
-        log_text = "📜 **ЖУРНАЛ ДЕЙСТВИЙ** (последние 10)\n\n"
+    
+    try:
+        # Разбираем команду
+        parts = data.split(":")
         
-        for i, log in enumerate(logs, 1):
-            # Определяем эмодзи для действий - красный/зеленый кружок
-            action_emoji = "🟢" if log['action'] == "Прибыл" else "🔴"
-            
-            # Эмодзи для локаций
-            location_emoji = ""
-            if log['location']:
-                location_map = {
-                    "Поликлиника": "🏥",
-                    "ОБРМП": "⚓",
-                    "Калининград": "🌆",
-                    "Магазин": "🛒",
-                    "Столовая": "🍲",
-                    "Госпиталь": "🏨",
-                    "Рабочка": "⚙️",
-                    "ВВК": "🩺",
-                    "МФЦ": "🏛️",
-                    "Патруль": "🚓",
-                    "В расположение": "🏠"
-                }
-                location_emoji = location_map.get(log['location'], "📍")
-            
-            log_text += f"{i}. {action_emoji} **{log['full_name']}** - {log['action']}\n"
-            log_text += f"   ⏰ {format_datetime(log['timestamp'])}\n"
-            
-            if log['location']:
-                log_text += f"   📍 {location_emoji} {log['location']}\n"
-            
-            if log['comment']:
-                log_text += f"   💬 {log['comment']}\n"
-            
-            log_text += "\n"
-
-        query.edit_message_text(
-            log_text,
-            reply_markup=admin_logs_keyboard(),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'logs_filter_name':
-        context.user_data['awaiting_filter'] = 'name'
-        query.edit_message_text(
-            "🔍 **ФИЛЬТР ПО ФАМИЛИИ**\n\n"
-            "📝 Введите фамилию или часть фамилии для поиска:\n"
-            "Например: Иванов, Петр, Сид\n\n"
-            "⚠️ Следующим сообщением отправьте текст для поиска",
-            reply_markup=admin_logs_keyboard(),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'logs_filter_date':
-        context.user_data['awaiting_filter'] = 'date'
-        query.edit_message_text(
-            "📅 **ФИЛЬТР ПО ДАТЕ**\n\n"
-            "📝 Введите дату в формате ДД.ММ.ГГГГ:\n"
-            "Например: 13.01.2024\n\n"
-            "⚠️ Следующим сообщением отправьте дату",
-            reply_markup=admin_logs_keyboard(),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'admin_export':
-        query.edit_message_text(
-            "💾 **ЭКСПОРТ ДАННЫХ**\n\n"
-            "📊 Выберите формат для экспорта:\n"
-            "📄 CSV - для таблиц\n"
-            "📋 Excel - для отчетов\n"
-            "📑 PDF - для печати\n"
-            "🗂️ Все форматы - полный комплект\n\n"
-            "⚡ Выберите формат:",
-            reply_markup=admin_export_keyboard(),
-            parse_mode='Markdown'
-        )
-
-    elif data.startswith('export_'):
-        date = get_today_date()
-        logs = get_all_logs(date)
-
-        if not logs:
-            query.edit_message_text(
-                "❌ **НЕТ ДАННЫХ ДЛЯ ЭКСПОРТА!**\n\n"
-                "📊 За сегодня нет записей в журнале\n"
-                "📝 Данные появятся после действий пользователей\n"
-                "⏰ Попробуйте позже",
-                reply_markup=admin_back_keyboard(),
-                parse_mode='Markdown'
+        if len(parts) < 2:
+            await query.edit_message_text(
+                "❌ Неверный формат команды.",
+                reply_markup=get_cancel_keyboard()
             )
-            return
-
-        try:
-            if data == 'export_csv':
-                file_path = export_to_csv(logs, date)
-                file_type = "CSV"
-            elif data == 'export_excel':
-                file_path = export_to_excel(logs, date)
-                file_type = "Excel"
-            elif data == 'export_pdf':
-                file_path = export_to_pdf(logs, date)
-                file_type = "PDF"
-            else:  # export_all
-                export_to_csv(logs, date)
-                export_to_excel(logs, date)
-                export_to_pdf(logs, date)
-                file_path = f"exports/{date}"
-                file_type = "все форматы"
-
-            query.edit_message_text(
-                f"✅ **ЭКСПОРТ ВЫПОЛНЕН УСПЕШНО!**\n\n"
-                f"📊 Формат: {file_type}\n"
-                f"📁 Файлы сохранены в: {file_path}\n"
-                f"⏰ Время: {format_datetime(get_current_time())}\n"
-                f"👤 Выполнил: {user.full_name}",
-                reply_markup=admin_back_keyboard(),
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            query.edit_message_text(
-                f"❌ **ОШИБКА ЭКСПОРТА!**\n\n"
-                f"💥 Причина: {str(e)}\n"
-                f"🔧 Обратитесь к администратору\n"
-                f"📋 Попробуйте другой формат",
-                reply_markup=admin_back_keyboard(),
-                parse_mode='Markdown'
-            )
-
-    elif data == 'admin_summary':
-        today = get_today_date()
-        stats = get_daily_stats(today)
-        all_users = get_all_users()
-
-        summary = f"📊 **СВОДКА ПО ЛИЧНОМУ СОСТАВУ**\n"
-        summary += f"� Дата: {today}\n"
-        summary += f"⏰ Время: {format_datetime(get_current_time())}\n\n"
-
-        # Группировка по статусам
-        in_base = [u for u in all_users if u['status'] == 'В расположении']
-        out_base = [u for u in all_users if u['status'] == 'Вне базы']
-        unknown = [u for u in all_users if u['status'] == 'unknown']
-
-        summary += "📈 **ОБЩАЯ СТАТИСТИКА:**\n"
-        summary += f"👥 Всего зарегистрировано: {len(all_users)} чел.\n"
-        summary += f"🏠 В расположении: {len(in_base)} чел.\n"
-        summary += f"🚶‍♂️ Вне базы: {len(out_base)} чел.\n"
-        summary += f"❓ Статус неизвестен: {len(unknown)} чел.\n\n"
-
-        # Детальная разбивка по локациям для тех, кто вне базы
-        if out_base:
-            summary += "📍 **РАСПРЕДЕЛЕНИЕ ПО ЛОКАЦИЯМ:**\n"
-            
-            # Группируем по локациям
-            location_count = {}
-            for user in out_base:
-                location = user['location'] or 'Неизвестно'
-                location_count[location] = location_count.get(location, 0) + 1
-            
-            # Эмодзи для локаций
-            location_emojis = {
-                "Поликлиника": "🏥",
-                "ОБРМП": "⚓",
-                "Калининград": "🌆",
-                "Магазин": "🛒",
-                "Столовая": "🍲",
-                "Госпиталь": "🏨",
-                "Рабочка": "⚙️",
-                "ВВК": "🩺",
-                "МФЦ": "🏛️",
-                "Патруль": "🚓",
-                "Неизвестно": "❓"
-            }
-            
-            for location, count in sorted(location_count.items()):
-                emoji = location_emojis.get(location, "📍")
-                summary += f"{emoji} {location}: {count} чел.\n"
-            
-            summary += "\n"
-
-        # Список тех, кто в расположении
-        if in_base:
-            summary += "🏠 **В РАСПОЛОЖЕНИИ:**\n"
-            for user in in_base:
-                summary += f"✅ {user['full_name']}\n"
-            summary += "\n"
-
-        # Активность за сегодня
-        if stats:
-            summary += "📊 **АКТИВНОСТЬ ЗА СЕГОДНЯ:**\n"
-            for stat in stats:
-                summary += f"📝 {stat[0]}: {stat[1]} действий\n"
-        else:
-            summary += "📊 **АКТИВНОСТЬ ЗА СЕГОДНЯ:**\n"
-            summary += "📝 Пока нет записей\n"
-
-        query.edit_message_text(
-            summary,
-            reply_markup=admin_back_keyboard(),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'admin_danger':
-        query.edit_message_text(
-            "🚨 **ОПАСНАЯ ЗОНА**\n\n"
-            "⚠️ Здесь находятся критические функции!\n"
-            "🔥 Действия могут быть НЕОБРАТИМЫМИ!\n"
-            "🔒 Все операции логируются!\n\n"
-            "⚡ Выберите действие:",
-            reply_markup=admin_danger_keyboard(),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'danger_clear_logs_menu':
-        query.edit_message_text(
-            "🗑️ **ОЧИСТКА ЖУРНАЛА**\n\n"
-            "📊 Выберите период для очистки:\n"
-            "📅 За сегодня - удалит записи только за сегодня\n"
-            "📆 За неделю - удалит записи за последние 7 дней\n"
-            "🗓️ За месяц - удалит записи за последние 30 дней\n"
-            "🗑️ Весь журнал - удалит ВСЕ записи\n\n"
-            "⚠️ Все действия НЕОБРАТИМЫ!",
-            reply_markup=clear_logs_period_keyboard(),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'danger_clear_today':
-        query.edit_message_text(
-            "⚠️ **ВНИМАНИЕ! ОЧИСТКА ЗА СЕГОДНЯ!**\n\n"
-            "📅 Вы хотите удалить записи за сегодня?\n"
-            "🗑️ Все записи за сегодняшний день будут удалены!\n"
-            "📊 Восстановление будет невозможно!\n"
-            "🔒 Это действие логируется!\n\n"
-            "⚠️ Подтвердите действие:",
-            reply_markup=confirm_danger_keyboard('clear_today'),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'danger_clear_week':
-        query.edit_message_text(
-            "⚠️ **ВНИМАНИЕ! ОЧИСТКА ЗА НЕДЕЛЮ!**\n\n"
-            "📆 Вы хотите удалить записи за неделю?\n"
-            "🗑️ Все записи за последние 7 дней будут удалены!\n"
-            "📊 Восстановление будет невозможно!\n"
-            "🔒 Это действие логируется!\n\n"
-            "⚠️ Подтвердите действие:",
-            reply_markup=confirm_danger_keyboard('clear_week'),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'danger_clear_month':
-        query.edit_message_text(
-            "⚠️ **ВНИМАНИЕ! ОЧИСТКА ЗА МЕСЯЦ!**\n\n"
-            "🗓️ Вы хотите удалить записи за месяц?\n"
-            "🗑️ Все записи за последние 30 дней будут удалены!\n"
-            "📊 Восстановление будет невозможно!\n"
-            "🔒 Это действие логируется!\n\n"
-            "⚠️ Подтвердите действие:",
-            reply_markup=confirm_danger_keyboard('clear_month'),
-            parse_mode='Markdown'
-        )
-
-    elif data.startswith('danger_clear_'):
-        if data == 'danger_clear_today':
-            period = 'today'
-            period_text = "ЗА СЕГОДНЯ"
-            description = "записи только за сегодняшний день"
-        elif data == 'danger_clear_week':
-            period = 'week'
-            period_text = "ЗА НЕДЕЛЮ"
-            description = "записи за последние 7 дней"
-        elif data == 'danger_clear_month':
-            period = 'month'
-            period_text = "ЗА МЕСЯЦ"
-            description = "записи за последние 30 дней"
-        elif data == 'danger_clear_logs':
-            period = 'all'
-            period_text = "ПОЛНАЯ ОЧИСТКА"
-            description = "ВСЕ записи в журнале"
-        else:
             return
         
-        query.edit_message_text(
-            f"⚠️ **ВНИМАНИЕ! ОЧИСТКА {period_text}!**\n\n"
-            f"🗑️ Будут удалены: {description}\n"
-            f"❌ Восстановление будет невозможно!\n"
-            f"🔒 Это действие логируется!\n\n"
-            f"⚠️ Подтвердите действие:",
-            reply_markup=confirm_danger_keyboard(f'clear_{period}'),
-            parse_mode='Markdown'
-        )
-
-    elif data.startswith('confirm_clear_'):
-        if data == 'confirm_clear_today':
-            period = 'today'
-            period_text = "ЗА СЕГОДНЯ"
-            action_text = "УДАЛИТЬ записи за сегодня"
-        elif data == 'confirm_clear_week':
-            period = 'week'
-            period_text = "ЗА НЕДЕЛЮ"
-            action_text = "УДАЛИТЬ записи за неделю"
-        elif data == 'confirm_clear_month':
-            period = 'month'
-            period_text = "ЗА МЕСЯЦ"
-            action_text = "УДАЛИТЬ записи за месяц"
-        elif data == 'confirm_clear_logs':
-            period = 'all'
-            period_text = "ПОЛНОСТЬЮ"
-            action_text = "УДАЛИТЬ ВСЕ записи"
+        command = parts[1]
+        
+        # Маршрутизация команд
+        if command == "main":
+            await show_admin_main(update, context)
+        elif command == "users":
+            await handle_users_command(update, context, parts)
+        elif command == "logs":
+            await handle_logs_command(update, context, parts)
+        elif command == "locations":
+            await handle_locations_command(update, context, parts)
+        elif command == "export":
+            await handle_export_command(update, context, parts)
+        elif command == "manage":
+            await handle_manage_command(update, context, parts)
+        elif command == "cleanup":
+            await handle_cleanup_command(update, context, parts)
+        elif command == "settings":
+            await handle_settings_command(update, context, parts)
+        elif command == "stats":
+            await show_statistics(update, context)
+        elif command == "mass_arrival":
+            await handle_mass_arrival(update, context, parts)
         else:
-            return
+            await query.edit_message_text(
+                "❌ Неизвестная команда.",
+                reply_markup=get_cancel_keyboard()
+            )
             
-        query.edit_message_text(
-            f"🚨 **ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ!**\n\n"
-            f"💥 Вы ТОЧНО хотите {action_text}?\n"
-            f"🗑️ Очистка журнала {period_text}!\n"
-            f"⏰ Восстановление невозможно!\n"
-            f"📋 Данные исчезнут навсегда!\n\n"
-            f"🔥 **ДЕЙСТВИЕ НЕОБРАТИМО!**",
-            reply_markup=double_confirm_danger_keyboard(f'clear_{period}'),
-            parse_mode='Markdown'
+    except Exception as e:
+        logger.error(f"Ошибка в admin callback: {e}")
+        await query.edit_message_text(
+            "⚠️ Произошла ошибка. Попробуйте еще раз.",
+            reply_markup=get_admin_keyboard()
         )
 
-    elif data.startswith('execute_clear_'):
-        try:
-            if data == 'execute_clear_today':
-                deleted_count = clear_logs_by_period('today')
-                period_text = "ЗА СЕГОДНЯ"
-                action_text = "записи за сегодня"
-            elif data == 'execute_clear_week':
-                deleted_count = clear_logs_by_period('week')
-                period_text = "ЗА НЕДЕЛЮ"
-                action_text = "записи за неделю"
-            elif data == 'execute_clear_month':
-                deleted_count = clear_logs_by_period('month')
-                period_text = "ЗА МЕСЯЦ"
-                action_text = "записи за месяц"
-            elif data == 'execute_clear_all' or data == 'execute_clear_logs':
-                clear_logs()
-                deleted_count = "все"
-                period_text = "ПОЛНОСТЬЮ"
-                action_text = "все записи"
-            else:
-                return
-            
-            # Логируем критическое действие
-            import logging
-            logging.warning(f"CRITICAL: Journal cleared ({action_text}) by admin {user.id} ({user.full_name})")
-            
-            query.edit_message_text(
-                f"✅ **ЖУРНАЛ ОЧИЩЕН {period_text}!**\n\n"
-                f"🗑️ Удалено: {deleted_count} записей\n"
-                f"⏰ Время очистки: {format_datetime(get_current_time())}\n"
-                f"👤 Выполнил: {user.full_name}\n"
-                f"🔒 Действие зафиксировано в логах",
-                reply_markup=admin_back_keyboard(),
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            query.edit_message_text(
-                f"❌ **ОШИБКА ОЧИСТКИ ЖУРНАЛА!**\n\n"
-                f"💥 Причина: {str(e)}\n"
-                f"🔧 Обратитесь к администратору",
-                reply_markup=admin_back_keyboard(),
-                parse_mode='Markdown'
-            )
+async def show_admin_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать главное меню админки"""
+    user_id = update.callback_query.from_user.id
+    user = get_user(user_id)
+    
+    admin_text = f"🔧 <b>Админ-панель</b>\n\n"
+    admin_text += f"Добро пожаловать, <b>{user['full_name']}</b>!\n\n"
+    admin_text += "Выберите действие:"
+    
+    await update.callback_query.edit_message_text(
+        admin_text,
+        parse_mode='HTML',
+        reply_markup=get_admin_keyboard()
+    )
 
-    elif data == 'danger_reset_statuses':
-        query.edit_message_text(
-            "⚠️ **ВНИМАНИЕ! МАССОВОЕ ДЕЙСТВИЕ!**\n\n"
-            "♻️ Вы хотите сбросить все статусы?\n"
-            "👥 Все пользователи станут 'неизвестно'!\n"
-            "📊 Текущие локации будут очищены!\n"
-            "🔒 Это действие логируется!\n\n"
-            "⚠️ Подтвердите первый шаг:",
-            reply_markup=confirm_danger_keyboard('reset_statuses'),
-            parse_mode='Markdown'
+async def handle_users_command(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list):
+    """Обработка команд управления пользователями"""
+    if len(parts) < 3:
+        await show_users_menu(update, context)
+        return
+    
+    subcommand = parts[2]
+    
+    if subcommand == "list":
+        await show_users_list(update, context)
+    elif subcommand == "search":
+        await start_user_search(update, context)
+    elif subcommand == "add_admin":
+        await start_add_admin(update, context)
+    elif subcommand == "remove_admin":
+        await start_remove_admin(update, context)
+    elif subcommand == "delete":
+        await start_delete_user(update, context)
+    elif subcommand == "stats":
+        await show_users_stats(update, context)
+    else:
+        await show_users_menu(update, context)
+
+async def show_users_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню пользователей"""
+    users_text = "👥 <b>Управление пользователями</b>\n\n"
+    users_text += "Выберите действие:"
+    
+    await update.callback_query.edit_message_text(
+        users_text,
+        parse_mode='HTML',
+        reply_markup=get_users_keyboard()
+    )
+
+async def show_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать список всех пользователей"""
+    users = get_all_users()
+    
+    if not users:
+        await update.callback_query.edit_message_text(
+            "📝 <b>Список пользователей</b>\n\n"
+            "❌ Пользователи не найдены.",
+            parse_mode='HTML',
+            reply_markup=get_back_keyboard("admin:users")
+        )
+        return
+    
+    # Получаем информацию о текущих локациях
+    active_locations = get_active_users_by_location()
+    
+    users_text = f"📝 <b>Список пользователей</b> ({len(users)} чел.)\n\n"
+    
+    for user in users:
+        status_icon = "👑" if user['is_admin'] else "👤"
+        
+        # Проверяем, где находится пользователь
+        current_location = None
+        for location, location_users in active_locations.items():
+            if any(u['telegram_id'] == user['telegram_id'] for u in location_users):
+                current_location = location
+                break
+        
+        location_status = get_status_indicator(current_location is not None)
+        location_text = f" • {current_location}" if current_location else " • не указано"
+        
+        users_text += f"{status_icon} <b>{user['full_name']}</b> {location_status}\n"
+        users_text += f"   ID: <code>{user['telegram_id']}</code>{location_text}\n\n"
+    
+    await update.callback_query.edit_message_text(
+        users_text,
+        parse_mode='HTML',
+        reply_markup=get_back_keyboard("admin:users")
+    )
+
+async def start_user_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начать поиск пользователя"""
+    context.user_data['waiting_for_search'] = 'user'
+    
+    await update.callback_query.edit_message_text(
+        "🔍 <b>Поиск пользователя</b>\n\n"
+        "Введите фамилию или часть имени для поиска:",
+        parse_mode='HTML',
+        reply_markup=get_cancel_keyboard()
+    )
+
+async def handle_logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list):
+    """Обработка команд просмотра логов"""
+    if len(parts) < 3:
+        await show_logs_menu(update, context)
+        return
+    
+    subcommand = parts[2]
+    
+    if subcommand == "all":
+        await show_all_logs(update, context)
+    elif subcommand == "search_name":
+        await start_logs_search_name(update, context)
+    elif subcommand == "search_date":
+        await start_logs_search_date(update, context)
+    elif subcommand == "my_actions":
+        await show_my_admin_actions(update, context)
+    elif subcommand == "admin":
+        await show_admin_logs(update, context)
+    elif subcommand == "stats":
+        await show_logs_stats(update, context)
+    else:
+        await show_logs_menu(update, context)
+
+async def show_logs_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню логов"""
+    logs_text = "📋 <b>Просмотр логов</b>\n\n"
+    logs_text += "Выберите действие:"
+    
+    await update.callback_query.edit_message_text(
+        logs_text,
+        parse_mode='HTML',
+        reply_markup=get_logs_keyboard()
+    )
+
+async def show_all_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать все логи"""
+    logs = get_location_logs(limit=50)
+    
+    if not logs:
+        await update.callback_query.edit_message_text(
+            "📋 <b>Журнал действий</b>\n\n"
+            "❌ Записи не найдены.",
+            parse_mode='HTML',
+            reply_markup=get_back_keyboard("admin:logs")
+        )
+        return
+    
+    logs_text = f"📋 <b>Журнал действий</b> (последние {len(logs)})\n\n"
+    
+    for log in logs:
+        log_entry = generate_log_entry(log)
+        logs_text += f"• {log_entry}\n"
+    
+    await update.callback_query.edit_message_text(
+        logs_text,
+        parse_mode='HTML',
+        reply_markup=get_back_keyboard("admin:logs")
+    )
+
+async def start_logs_search_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начать поиск логов по имени"""
+    context.user_data['waiting_for_search'] = 'logs_name'
+    
+    await update.callback_query.edit_message_text(
+        "🔍 <b>Поиск в журнале по имени</b>\n\n"
+        "Введите фамилию или часть имени:",
+        parse_mode='HTML',
+        reply_markup=get_cancel_keyboard()
+    )
+
+async def start_logs_search_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начать поиск логов по дате"""
+    context.user_data['waiting_for_search'] = 'logs_date'
+    
+    await update.callback_query.edit_message_text(
+        "📅 <b>Поиск в журнале по дате</b>\n\n"
+        "Введите дату в формате ГГГГ-ММ-ДД:\n"
+        "Например: <code>2024-01-15</code>",
+        parse_mode='HTML',
+        reply_markup=get_cancel_keyboard()
+    )
+
+async def handle_locations_command(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list):
+    """Обработка команд управления локациями"""
+    if len(parts) < 3:
+        await show_locations_menu(update, context)
+        return
+    
+    subcommand = parts[2]
+    
+    if subcommand == "current":
+        await show_current_locations(update, context)
+    elif subcommand == "stats":
+        await show_locations_stats(update, context)
+    elif subcommand == "clear_all":
+        await confirm_clear_all_locations(update, context)
+    elif subcommand == "mass_arrival":
+        await show_mass_arrival_menu(update, context)
+    else:
+        await show_locations_menu(update, context)
+
+async def show_locations_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню локаций"""
+    locations_text = "📍 <b>Управление локациями</b>\n\n"
+    locations_text += "Выберите действие:"
+    
+    await update.callback_query.edit_message_text(
+        locations_text,
+        parse_mode='HTML',
+        reply_markup=get_locations_admin_keyboard()
+    )
+
+async def show_current_locations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать текущие локации"""
+    locations_data = get_active_users_by_location()
+    users_without_location = get_users_without_location()
+    
+    summary = generate_location_summary(locations_data)
+    
+    if users_without_location:
+        summary += f"\n🔴 <b>Не указали местоположение</b> ({len(users_without_location)} чел.)\n"
+        for user in users_without_location:
+            summary += f"  • {user['full_name']}\n"
+    
+    await update.callback_query.edit_message_text(
+        summary,
+        parse_mode='HTML',
+        reply_markup=get_back_keyboard("admin:locations")
+    )
+
+async def show_mass_arrival_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню массового прибытия"""
+    mass_text = "🎯 <b>Массовое прибытие</b>\n\n"
+    mass_text += "⚠️ <b>ВНИМАНИЕ!</b> Эта функция отметит <b>ВСЕХ</b> пользователей как прибывших в выбранную локацию.\n\n"
+    mass_text += "Выберите локацию для массового прибытия:"
+    
+    await update.callback_query.edit_message_text(
+        mass_text,
+        parse_mode='HTML',
+        reply_markup=get_mass_arrival_keyboard()
+    )
+
+async def handle_mass_arrival(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list):
+    """Обработка массового прибытия"""
+    if len(parts) < 3:
+        await show_mass_arrival_menu(update, context)
+        return
+    
+    location = parts[2]
+    
+    # Проверяем валидность локации
+    if location not in get_locations_list():
+        await update.callback_query.edit_message_text(
+            "❌ Неизвестная локация.",
+            reply_markup=get_cancel_keyboard()
+        )
+        return
+    
+    # Запрашиваем двойное подтверждение
+    confirmation_text = f"⚠️ <b>ПОДТВЕРЖДЕНИЕ МАССОВОГО ПРИБЫТИЯ</b>\n\n"
+    confirmation_text += f"Вы собираетесь отметить <b>ВСЕХ</b> пользователей как прибывших в:\n"
+    confirmation_text += f"📍 <b>{location}</b>\n\n"
+    confirmation_text += f"🔄 Это действие <b>НЕЛЬЗЯ ОТМЕНИТЬ</b>!\n\n"
+    confirmation_text += random.choice(get_confirmation_phrases())
+    
+    await update.callback_query.edit_message_text(
+        confirmation_text,
+        parse_mode='HTML',
+        reply_markup=get_confirmation_keyboard(f"mass_arrival_confirm:{location}")
+    )
+
+async def handle_cleanup_command(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list):
+    """Обработка команд очистки"""
+    if len(parts) < 3:
+        await show_cleanup_menu(update, context)
+        return
+    
+    subcommand = parts[2]
+    
+    if subcommand == "logs":
+        await show_cleanup_logs_menu(update, context)
+    elif subcommand == "admin_logs":
+        await show_cleanup_admin_logs_menu(update, context)
+    elif subcommand == "locations":
+        await confirm_clear_all_locations(update, context)
+    elif subcommand == "full":
+        await confirm_full_cleanup(update, context)
+    elif subcommand == "period":
+        await handle_cleanup_period(update, context, parts)
+    else:
+        await show_cleanup_menu(update, context)
+
+async def show_cleanup_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню очистки"""
+    cleanup_text = "🧹 <b>Очистка данных</b>\n\n"
+    cleanup_text += "⚠️ <b>ВНИМАНИЕ!</b> Операции очистки необратимы!\n\n"
+    cleanup_text += "Выберите действие:"
+    
+    await update.callback_query.edit_message_text(
+        cleanup_text,
+        parse_mode='HTML',
+        reply_markup=get_cleanup_keyboard()
+    )
+
+async def show_cleanup_logs_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню очистки журнала"""
+    cleanup_text = "🗑️ <b>Очистка журнала действий</b>\n\n"
+    cleanup_text += "Выберите период для очистки:"
+    
+    await update.callback_query.edit_message_text(
+        cleanup_text,
+        parse_mode='HTML',
+        reply_markup=get_cleanup_period_keyboard()
+    )
+
+async def handle_cleanup_period(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list):
+    """Обработка очистки по периоду"""
+    if len(parts) < 4:
+        await show_cleanup_logs_menu(update, context)
+        return
+    
+    period = parts[3]
+    
+    # Запрашиваем подтверждение
+    period_text = {
+        'day': 'записи старше 1 дня',
+        'week': 'записи старше 1 недели',
+        'month': 'записи старше 1 месяца',
+        'all': 'ВСЕ записи'
+    }.get(period, 'записи')
+    
+    confirmation_text = f"🗑️ <b>ПОДТВЕРЖДЕНИЕ ОЧИСТКИ</b>\n\n"
+    confirmation_text += f"Будут удалены: <b>{period_text}</b>\n\n"
+    confirmation_text += f"⚠️ Это действие <b>НЕЛЬЗЯ ОТМЕНИТЬ</b>!\n\n"
+    confirmation_text += random.choice(get_confirmation_phrases())
+    
+    await update.callback_query.edit_message_text(
+        confirmation_text,
+        parse_mode='HTML',
+        reply_markup=get_confirmation_keyboard(f"cleanup_logs_confirm:{period}")
+    )
+
+async def confirm_clear_all_locations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подтверждение очистки всех локаций"""
+    confirmation_text = f"🏠 <b>ПОДТВЕРЖДЕНИЕ ОЧИСТКИ ЛОКАЦИЙ</b>\n\n"
+    confirmation_text += f"Все пользователи будут отмечены как <b>покинувшие</b> свои текущие локации.\n\n"
+    confirmation_text += f"⚠️ Это действие <b>НЕЛЬЗЯ ОТМЕНИТЬ</b>!\n\n"
+    confirmation_text += random.choice(get_confirmation_phrases())
+    
+    await update.callback_query.edit_message_text(
+        confirmation_text,
+        parse_mode='HTML',
+        reply_markup=get_confirmation_keyboard("clear_all_locations_confirm")
+    )
+
+async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать статистику системы"""
+    stats = get_database_stats()
+    
+    stats_text = f"📊 <b>Статистика системы</b>\n\n"
+    stats_text += f"👥 Пользователи: <b>{stats['users']}</b>\n"
+    stats_text += f"👑 Администраторы: <b>{stats['admins']}</b>\n"
+    stats_text += f"📋 Записи в журнале: <b>{stats['location_logs']}</b>\n"
+    stats_text += f"📍 Активные сессии: <b>{stats['active_sessions']}</b>\n"
+    stats_text += f"🔧 Админские действия: <b>{stats['admin_logs']}</b>\n\n"
+    
+    # Активные локации
+    active_locations = get_active_users_by_location()
+    if active_locations:
+        stats_text += f"📍 <b>Активные локации:</b>\n"
+        for location, users in active_locations.items():
+            stats_text += f"  • {location}: {len(users)} чел.\n"
+    
+    # Пользователи без локации
+    users_without_location = get_users_without_location()
+    if users_without_location:
+        stats_text += f"\n🔴 Без локации: <b>{len(users_without_location)}</b> чел.\n"
+    
+    await update.callback_query.edit_message_text(
+        stats_text,
+        parse_mode='HTML',
+        reply_markup=get_back_keyboard("admin:main")
+    )
+
+async def handle_export_command(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list):
+    """Обработка команд экспорта"""
+    if len(parts) < 3:
+        await show_export_menu(update, context)
+        return
+    
+    export_type = parts[2]
+    
+    if export_type in ['csv', 'excel', 'pdf']:
+        await start_export(update, context, export_type)
+    elif export_type == "all":
+        await start_export_all(update, context)
+    else:
+        await show_export_menu(update, context)
+
+async def show_export_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню экспорта"""
+    export_text = "📁 <b>Экспорт данных</b>\n\n"
+    export_text += "Выберите формат для экспорта:"
+    
+    await update.callback_query.edit_message_text(
+        export_text,
+        parse_mode='HTML',
+        reply_markup=get_export_keyboard()
+    )
+
+async def start_export(update: Update, context: ContextTypes.DEFAULT_TYPE, export_type: str):
+    """Начать экспорт данных"""
+    user_id = update.callback_query.from_user.id
+    
+    await update.callback_query.edit_message_text(
+        f"📊 Экспорт данных в формате {export_type.upper()}...\n\n"
+        f"⏳ Пожалуйста, подождите...",
+        parse_mode='HTML'
+    )
+    
+    try:
+        file_path = await export_data(export_type)
+        
+        if file_path:
+            # Логируем экспорт
+            add_admin_log(user_id, f"Экспорт данных ({export_type})")
+            
+            # Отправляем файл
+            with open(file_path, 'rb') as file:
+                await update.callback_query.message.reply_document(
+                    document=file,
+                    filename=f"personnel_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{export_type}",
+                    caption=f"📊 Экспорт данных в формате {export_type.upper()}\n"
+                           f"🕒 Создан: {format_datetime(datetime.now().isoformat())}"
+                )
+            
+            await update.callback_query.edit_message_text(
+                f"✅ Экспорт завершен!\n\n"
+                f"Файл отправлен выше.",
+                parse_mode='HTML',
+                reply_markup=get_back_keyboard("admin:export")
+            )
+        else:
+            await update.callback_query.edit_message_text(
+                f"❌ Ошибка при экспорте данных.",
+                parse_mode='HTML',
+                reply_markup=get_back_keyboard("admin:export")
+            )
+            
+    except Exception as e:
+        logger.error(f"Ошибка экспорта: {e}")
+        await update.callback_query.edit_message_text(
+            f"❌ Ошибка при экспорте данных.",
+            parse_mode='HTML',
+            reply_markup=get_back_keyboard("admin:export")
         )
 
-    elif data == 'confirm_reset_statuses':
-        query.edit_message_text(
-            "🚨 **ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ!**\n\n"
-            "💥 Вы ТОЧНО хотите СБРОСИТЬ ВСЕ статусы?\n"
-            "♻️ Все бойцы станут 'неизвестно'!\n"
-            "📍 Все локации будут очищены!\n"
-            "📊 Статистика собьется!\n\n"
-            "🔥 **ДЕЙСТВИЕ НЕОБРАТИМО!**",
-            reply_markup=double_confirm_danger_keyboard('reset_statuses'),
-            parse_mode='Markdown'
+async def handle_manage_command(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list):
+    """Обработка команд управления системой"""
+    if len(parts) < 3:
+        await show_manage_menu(update, context)
+        return
+    
+    subcommand = parts[2]
+    
+    if subcommand == "system_stats":
+        await show_system_stats(update, context)
+    elif subcommand == "backup":
+        await start_backup(update, context)
+    else:
+        await show_manage_menu(update, context)
+
+async def show_manage_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню управления"""
+    manage_text = "🔧 <b>Управление системой</b>\n\n"
+    manage_text += "Выберите действие:"
+    
+    await update.callback_query.edit_message_text(
+        manage_text,
+        parse_mode='HTML',
+        reply_markup=get_manage_keyboard()
+    )
+
+async def handle_search_input(update: Update, context: ContextTypes.DEFAULT_TYPE, search_text: str):
+    """Обработка ввода поиска"""
+    search_type = context.user_data.get('waiting_for_search')
+    
+    if search_type == 'logs_name':
+        await search_logs_by_name(update, context, search_text)
+    elif search_type == 'logs_date':
+        await search_logs_by_date(update, context, search_text)
+    elif search_type == 'user':
+        await search_users(update, context, search_text)
+    
+    # Очищаем состояние
+    context.user_data.pop('waiting_for_search', None)
+
+async def search_logs_by_name(update: Update, context: ContextTypes.DEFAULT_TYPE, name: str):
+    """Поиск логов по имени"""
+    logs = get_location_logs(limit=50, user_filter=name)
+    
+    if not logs:
+        await update.message.reply_text(
+            f"🔍 <b>Результаты поиска</b>\n\n"
+            f"❌ По запросу '<b>{name}</b>' ничего не найдено.",
+            parse_mode='HTML',
+            reply_markup=get_back_keyboard("admin:logs")
+        )
+        return
+    
+    results_text = f"🔍 <b>Результаты поиска по '{name}'</b>\n\n"
+    results_text += f"Найдено записей: <b>{len(logs)}</b>\n\n"
+    
+    for log in logs:
+        log_entry = generate_log_entry(log)
+        results_text += f"• {log_entry}\n"
+    
+    await update.message.reply_text(
+        results_text,
+        parse_mode='HTML',
+        reply_markup=get_back_keyboard("admin:logs")
+    )
+
+async def search_logs_by_date(update: Update, context: ContextTypes.DEFAULT_TYPE, date: str):
+    """Поиск логов по дате"""
+    logs = get_location_logs(limit=100, date_filter=date)
+    
+    if not logs:
+        await update.message.reply_text(
+            f"📅 <b>Результаты поиска</b>\n\n"
+            f"❌ За <b>{date}</b> записей не найдено.",
+            parse_mode='HTML',
+            reply_markup=get_back_keyboard("admin:logs")
+        )
+        return
+    
+    results_text = f"📅 <b>Записи за {date}</b>\n\n"
+    results_text += f"Найдено записей: <b>{len(logs)}</b>\n\n"
+    
+    for log in logs:
+        log_entry = generate_log_entry(log)
+        results_text += f"• {log_entry}\n"
+    
+    await update.message.reply_text(
+        results_text,
+        parse_mode='HTML',
+        reply_markup=get_back_keyboard("admin:logs")
+    )
+
+async def execute_action(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Выполнение подтвержденного действия"""
+    user_id = update.callback_query.from_user.id
+    
+    try:
+        if action.startswith("mass_arrival_confirm:"):
+            location = action.split(":", 1)[1]
+            count = mark_all_as_arrived(location)
+            
+            # Логируем действие
+            add_admin_log(user_id, f"Массовое прибытие в {location}", details=f"Отмечено {count} пользователей")
+            
+            await update.callback_query.edit_message_text(
+                f"✅ <b>Массовое прибытие выполнено!</b>\n\n"
+                f"📍 Локация: <b>{location}</b>\n"
+                f"👥 Отмечено пользователей: <b>{count}</b>\n\n"
+                f"🕒 Время: {format_datetime(get_current_time().isoformat())}",
+                parse_mode='HTML',
+                reply_markup=get_back_keyboard("admin:locations")
+            )
+            
+        elif action.startswith("cleanup_logs_confirm:"):
+            period = action.split(":", 1)[1]
+            deleted_count = clear_location_logs(period)
+            
+            # Логируем действие
+            add_admin_log(user_id, f"Очистка журнала ({period})", details=f"Удалено {deleted_count} записей")
+            
+            await update.callback_query.edit_message_text(
+                f"✅ <b>Очистка журнала выполнена!</b>\n\n"
+                f"🗑️ Удалено записей: <b>{deleted_count}</b>\n\n"
+                f"🕒 Время: {format_datetime(get_current_time().isoformat())}",
+                parse_mode='HTML',
+                reply_markup=get_back_keyboard("admin:cleanup")
+            )
+            
+        elif action == "clear_all_locations_confirm":
+            count = clear_all_locations()
+            
+            # Логируем действие
+            add_admin_log(user_id, "Очистка всех локаций", details=f"Очищено {count} локаций")
+            
+            await update.callback_query.edit_message_text(
+                f"✅ <b>Очистка локаций выполнена!</b>\n\n"
+                f"🏠 Очищено локаций: <b>{count}</b>\n\n"
+                f"🕒 Время: {format_datetime(get_current_time().isoformat())}",
+                parse_mode='HTML',
+                reply_markup=get_back_keyboard("admin:locations")
+            )
+            
+        else:
+            await update.callback_query.edit_message_text(
+                "❌ Неизвестное действие.",
+                reply_markup=get_cancel_keyboard()
+            )
+            
+    except Exception as e:
+        logger.error(f"Ошибка выполнения действия {action}: {e}")
+        await update.callback_query.edit_message_text(
+            "❌ Ошибка при выполнении действия.",
+            reply_markup=get_cancel_keyboard()
         )
 
-    elif data == 'execute_reset_statuses':
-        try:
-            reset_all_statuses()
-            
-            # Логируем критическое действие
-            import logging
-            logging.warning(f"CRITICAL: All statuses reset by admin {user.id} ({user.full_name})")
-            
-            query.edit_message_text(
-                "✅ **СТАТУСЫ ВСЕХ ПОЛЬЗОВАТЕЛЕЙ СБРОШЕНЫ!**\n\n"
-                "♻️ Все статусы обнулены\n"
-                "📍 Все локации очищены\n"
-                "⏰ Время сброса: {}\n"
-                "👤 Выполнил: {}\n"
-                "🔒 Действие зафиксировано в логах".format(
-                    format_datetime(get_current_time()),
-                    user.full_name
-                ),
-                reply_markup=admin_back_keyboard(),
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            query.edit_message_text(
-                f"❌ **ОШИБКА СБРОСА СТАТУСОВ!**\n\n"
-                f"💥 Причина: {str(e)}\n"
-                f"🔧 Обратитесь к администратору",
-                reply_markup=admin_back_keyboard(),
-                parse_mode='Markdown'
-            )
+async def handle_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE, parts: list):
+    """Обработка команд настроек"""
+    if len(parts) < 3:
+        await show_settings_menu(update, context)
+        return
+    
+    subcommand = parts[2]
+    
+    if subcommand == "notifications":
+        await show_notification_settings(update, context)
+    else:
+        await show_settings_menu(update, context)
 
-    elif data == 'danger_mark_all_arrived':
-        query.edit_message_text(
-            "⚠️ **ВНИМАНИЕ! МАССОВОЕ ДЕЙСТВИЕ!**\n\n"
-            "🏠 Вы хотите отметить всех прибывшими?\n"
-            "👥 Все пользователи станут 'В расположении'!\n"
-            "📊 Изменятся все статусы!\n"
-            "📝 Будут созданы записи в журнале!\n"
-            "🔒 Это действие логируется!\n\n"
-            "⚠️ Подтвердите первый шаг:",
-            reply_markup=confirm_danger_keyboard('mark_all_arrived'),
-            parse_mode='Markdown'
+async def show_settings_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню настроек"""
+    settings_text = "⚙️ <b>Настройки системы</b>\n\n"
+    settings_text += "Выберите раздел:"
+    
+    await update.callback_query.edit_message_text(
+        settings_text,
+        parse_mode='HTML',
+        reply_markup=get_settings_keyboard()
+    )
+
+async def show_notification_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать настройки уведомлений"""
+    settings_text = "⏰ <b>Настройки уведомлений</b>\n\n"
+    settings_text += "Выберите действие:"
+    
+    await update.callback_query.edit_message_text(
+        settings_text,
+        parse_mode='HTML',
+        reply_markup=get_notification_settings_keyboard()
+    )
+
+# Обработчики подтверждений
+async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE, action: str):
+    """Обработка подтверждения действий"""
+    if action.startswith("mass_arrival_confirm:") or action.startswith("cleanup_logs_confirm:") or action == "clear_all_locations_confirm":
+        await execute_action(update, context, action)
+    else:
+        await update.callback_query.edit_message_text(
+            "❌ Неизвестное действие.",
+            reply_markup=get_cancel_keyboard()
         )
 
-    elif data == 'confirm_mark_all_arrived':
-        query.edit_message_text(
-            "🚨 **ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ!**\n\n"
-            "💥 Вы ТОЧНО хотите ОТМЕТИТЬ ВСЕХ прибывшими?\n"
-            "🏠 Все бойцы станут 'В расположении'!\n"
-            "📝 Будет создано много записей в журнале!\n"
-            "📊 Статистика изменится!\n\n"
-            "🔥 **ДЕЙСТВИЕ НЕОБРАТИМО!**",
-            reply_markup=double_confirm_danger_keyboard('mark_all_arrived'),
-            parse_mode='Markdown'
-        )
-
-    elif data == 'execute_mark_all_arrived':
-        try:
-            updated_count = mark_all_arrived()
-            
-            # Логируем критическое действие
-            import logging
-            logging.warning(f"CRITICAL: Mass arrival marked by admin {user.id} ({user.full_name}), updated {updated_count} users")
-            
-            query.edit_message_text(
-                "✅ **МАССОВАЯ ОТМЕТКА О ПРИБЫТИИ ВЫПОЛНЕНА!**\n\n"
-                "🏠 Все отмечены как прибывшие\n"
-                "📊 Обновлено статусов: {}\n"
-                "⏰ Время операции: {}\n"
-                "👤 Выполнил: {}\n"
-                "🔒 Действие зафиксировано в логах".format(
-                    updated_count,
-                    format_datetime(get_current_time()),
-                    user.full_name
-                ),
-                reply_markup=admin_back_keyboard(),
-                parse_mode='Markdown'
-            )
-            
-
-            
-        except Exception as e:
-            query.edit_message_text(
-                f"❌ **ОШИБКА МАССОВОЙ ОТМЕТКИ!**\n\n"
-                f"💥 Причина: {str(e)}\n"
-                f"🔧 Обратитесь к администратору",
-                reply_markup=admin_back_keyboard(),
-                parse_mode='Markdown'
-            )
-
-def is_admin(tg_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM admins WHERE tg_id = ?", (tg_id,))
-    result = cursor.fetchone()[0]
-    conn.close()
-    return result > 0
-
-def reset_all_statuses():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE users SET status = 'unknown', location = ''")
-    conn.commit()
-    conn.close()
-
-def mark_all_arrived():
-    """Отмечает всех пользователей как прибывших в расположение"""
+# Добавим обработчики для поисковых запросов
+async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
+    """Обновленный главный обработчик админских callback-запросов"""
+    # Проверяем, не это ли поисковый запрос
+    if data.startswith("search_input:"):
+        search_text = data.split(":", 1)[1]
+        await handle_search_input(update, context, search_text)
+        return
     
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
+    # Проверяем, не это ли выполнение действия
+    if data.startswith("execute:"):
+        action = data.split(":", 1)[1]
+        await handle_confirmation(update, context, action)
+        return
     
-    # Получаем всех пользователей
-    cursor.execute("SELECT id, full_name, status FROM users")
-    users = cursor.fetchall()
+    # Проверяем, не это ли финальное выполнение действия
+    if data.startswith("final_execute:"):
+        action = data.split(":", 1)[1]
+        await execute_action(update, context, action)
+        return
     
-    current_time = get_current_time()
-    updated_count = 0
-    
-    for user_id, full_name, current_status in users:
-        # Обновляем статус только если он не "В расположении"
-        if current_status != 'В расположении':
-            # Обновляем статус пользователя
-            cursor.execute("""
-                UPDATE users 
-                SET status = 'В расположении', location = '', last_action = ?
-                WHERE id = ?
-            """, (current_time, user_id))
-            
-            # Добавляем запись в лог
-            cursor.execute("""
-                INSERT INTO logs (user_id, action, location, comment, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-            """, (user_id, "Прибыл", "В расположение", "Массовая отметка админом", current_time))
-            
-            updated_count += 1
-    
-    conn.commit()
-    conn.close()
-    
-    return updated_count
-
-def clear_logs_by_period(period):
-    """Очищает логи за указанный период"""
-    from datetime import datetime, timedelta
-    
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    current_time = get_current_time()
-    
-    if period == 'today':
-        # За сегодня
-        start_of_day = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
-        cursor.execute("DELETE FROM logs WHERE timestamp >= ?", (start_of_day,))
-    elif period == 'week':
-        # За неделю
-        week_ago = current_time - timedelta(days=7)
-        cursor.execute("DELETE FROM logs WHERE timestamp >= ?", (week_ago,))
-    elif period == 'month':
-        # За месяц
-        month_ago = current_time - timedelta(days=30)
-        cursor.execute("DELETE FROM logs WHERE timestamp >= ?", (month_ago,))
-    
-    deleted_count = cursor.rowcount
-    conn.commit()
-    conn.close()
-    
-    return deleted_count
-
-def get_period_description(period):
-    """Возвращает описание периода"""
-    descriptions = {
-        'today': 'за сегодня',
-        'week': 'за неделю',
-        'month': 'за месяц'
-    }
-    return descriptions.get(period, period)
+    # Вызываем оригинальный обработчик
+    await handle_admin_callback(update, context, data)

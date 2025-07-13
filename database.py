@@ -1,299 +1,517 @@
+"""
+База данных для бота учета персонала
+"""
 import sqlite3
 import os
-import logging
-from utils import get_current_time
+from datetime import datetime, timedelta
+from typing import List, Optional, Dict, Any
+import pytz
+from utils import get_timezone
 
-DB_NAME = "data/personnel.db"
+DB_PATH = os.getenv('DB_PATH', 'data/personnel.db')
 
 def init_db():
-    # Создаем папку data, если её нет
-    os.makedirs('data', exist_ok=True)
+    """Инициализация базы данных"""
+    # Создаем директорию если её нет
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
+    
+    # Таблица пользователей
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tg_id INTEGER UNIQUE NOT NULL,
-        full_name TEXT NOT NULL,
-        status TEXT DEFAULT 'unknown',
-        location TEXT DEFAULT '',
-        last_action TIMESTAMP,
-        is_admin BOOLEAN DEFAULT FALSE
-    )
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            telegram_id INTEGER UNIQUE NOT NULL,
+            full_name TEXT NOT NULL,
+            username TEXT,
+            is_admin INTEGER DEFAULT 0,
+            registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     ''')
-
+    
+    # Таблица записей о местоположении
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        action TEXT NOT NULL,
-        location TEXT,
-        comment TEXT,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-    )
+        CREATE TABLE IF NOT EXISTS location_logs (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER,
+            location TEXT NOT NULL,
+            action TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
     ''')
-
+    
+    # Таблица активных сессий (кто где сейчас находится)
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS admins (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tg_id INTEGER UNIQUE NOT NULL,
-        permissions TEXT DEFAULT 'view,export'
-    )
+        CREATE TABLE IF NOT EXISTS active_sessions (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER,
+            location TEXT NOT NULL,
+            entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
     ''')
-
-    admin_id = os.getenv("ADMIN_ID")
-    if admin_id:
-        try:
-            admin_id = int(admin_id)
-            cursor.execute('''
-            INSERT OR IGNORE INTO admins (tg_id, permissions)
-            VALUES (?, ?)
-            ''', (admin_id, "full"))
-
-            cursor.execute('''
-            INSERT OR IGNORE INTO users (tg_id, full_name, is_admin)
-            VALUES (?, ?, ?)
-            ''', (admin_id, f"Admin-{admin_id}", True))
-        except ValueError:
-            logging.error("Некорректный формат ADMIN_ID!")
-
+    
+    # Таблица админских операций
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS admin_logs (
+            id INTEGER PRIMARY KEY,
+            admin_id INTEGER,
+            action TEXT NOT NULL,
+            target_user_id INTEGER,
+            details TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (admin_id) REFERENCES users (id),
+            FOREIGN KEY (target_user_id) REFERENCES users (id)
+        )
+    ''')
+    
     conn.commit()
     conn.close()
-    logging.info("База данных инициализирована")
 
-def get_user(tg_id):
-    conn = sqlite3.connect(DB_NAME)
+def get_db_connection():
+    """Получение соединения с базой данных"""
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE tg_id = ?", (tg_id,))
-    user = cursor.fetchone()
-    conn.close()
-    return user
+    return conn
 
-def register_user(tg_id, full_name):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
+def close_db():
+    """Закрытие соединения с базой данных"""
+    pass  # SQLite не требует явного закрытия
 
+# Функции для работы с пользователями
+def add_user(telegram_id: int, full_name: str, username: str = None) -> bool:
+    """Добавление нового пользователя"""
     try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
         cursor.execute('''
-        INSERT INTO users (tg_id, full_name)
-        VALUES (?, ?)
-        ''', (tg_id, full_name))
+            INSERT INTO users (telegram_id, full_name, username)
+            VALUES (?, ?, ?)
+        ''', (telegram_id, full_name, username))
+        
         conn.commit()
+        conn.close()
         return True
     except sqlite3.IntegrityError:
         return False
-    finally:
-        conn.close()
 
-def log_action(user_id, action, location=None, comment=None):
-    conn = sqlite3.connect(DB_NAME)
+def get_user(telegram_id: int) -> Optional[Dict[str, Any]]:
+    """Получение пользователя по telegram_id"""
+    conn = get_db_connection()
     cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM users WHERE telegram_id = ?', (telegram_id,))
+    user = cursor.fetchone()
+    
+    conn.close()
+    
+    if user:
+        return dict(user)
+    return None
 
-    current_time = get_current_time()
+def get_all_users() -> List[Dict[str, Any]]:
+    """Получение всех пользователей"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT * FROM users ORDER BY full_name')
+    users = cursor.fetchall()
+    
+    conn.close()
+    return [dict(user) for user in users]
 
+def update_user_activity(telegram_id: int):
+    """Обновление времени последней активности пользователя"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
     cursor.execute('''
-    INSERT INTO logs (user_id, action, location, comment, timestamp)
-    VALUES (?, ?, ?, ?, ?)
-    ''', (user_id, action, location, comment, current_time))
-
-    if action == "Прибыл":
-        cursor.execute('''
-        UPDATE users SET status = 'В расположении', location = 'База', last_action = ?
-        WHERE id = ?
-        ''', (current_time, user_id))
-    elif action == "Убыл":
-        cursor.execute('''
-        UPDATE users SET status = 'Вне базы', location = ?, last_action = ?
-        WHERE id = ?
-        ''', (location, current_time, user_id))
-
+        UPDATE users 
+        SET last_activity = CURRENT_TIMESTAMP 
+        WHERE telegram_id = ?
+    ''', (telegram_id,))
+    
     conn.commit()
     conn.close()
-    return current_time
 
-def get_user_logs(user_id, limit=3):
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
+def set_admin_status(telegram_id: int, is_admin: bool):
+    """Установка статуса администратора"""
+    conn = get_db_connection()
     cursor = conn.cursor()
-
+    
     cursor.execute('''
-    SELECT action, location, comment, timestamp
-    FROM logs
-    WHERE user_id = ?
-    ORDER BY timestamp DESC
-    LIMIT ?
-    ''', (user_id, limit))
+        UPDATE users 
+        SET is_admin = ? 
+        WHERE telegram_id = ?
+    ''', (1 if is_admin else 0, telegram_id))
+    
+    conn.commit()
+    conn.close()
 
+def delete_user(telegram_id: int) -> bool:
+    """Удаление пользователя"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем user_id
+        cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (telegram_id,))
+        user = cursor.fetchone()
+        
+        if not user:
+            return False
+        
+        user_id = user['id']
+        
+        # Удаляем связанные записи
+        cursor.execute('DELETE FROM location_logs WHERE user_id = ?', (user_id,))
+        cursor.execute('DELETE FROM active_sessions WHERE user_id = ?', (user_id,))
+        cursor.execute('DELETE FROM admin_logs WHERE target_user_id = ?', (user_id,))
+        
+        # Удаляем пользователя
+        cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+# Функции для работы с записями местоположения
+def add_location_log(telegram_id: int, location: str, action: str) -> bool:
+    """Добавление записи о местоположении"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем user_id
+        cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (telegram_id,))
+        user = cursor.fetchone()
+        
+        if not user:
+            return False
+        
+        user_id = user['id']
+        
+        # Добавляем запись
+        cursor.execute('''
+            INSERT INTO location_logs (user_id, location, action)
+            VALUES (?, ?, ?)
+        ''', (user_id, location, action))
+        
+        # Обновляем активную сессию
+        if action == 'arrived':
+            # Удаляем предыдущую активную сессию
+            cursor.execute('DELETE FROM active_sessions WHERE user_id = ?', (user_id,))
+            # Добавляем новую активную сессию
+            cursor.execute('''
+                INSERT INTO active_sessions (user_id, location)
+                VALUES (?, ?)
+            ''', (user_id, location))
+        elif action == 'left':
+            # Удаляем активную сессию
+            cursor.execute('DELETE FROM active_sessions WHERE user_id = ?', (user_id,))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+def get_user_current_location(telegram_id: int) -> Optional[str]:
+    """Получение текущего местоположения пользователя"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT location FROM active_sessions 
+        WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)
+    ''', (telegram_id,))
+    
+    result = cursor.fetchone()
+    conn.close()
+    
+    return result['location'] if result else None
+
+def get_location_logs(limit: int = 100, user_filter: str = None, date_filter: str = None) -> List[Dict[str, Any]]:
+    """Получение логов местоположения с фильтрами"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    query = '''
+        SELECT l.*, u.full_name, u.telegram_id
+        FROM location_logs l
+        JOIN users u ON l.user_id = u.id
+        WHERE 1=1
+    '''
+    params = []
+    
+    if user_filter:
+        query += ' AND u.full_name LIKE ?'
+        params.append(f'%{user_filter}%')
+    
+    if date_filter:
+        query += ' AND DATE(l.timestamp) = ?'
+        params.append(date_filter)
+    
+    query += ' ORDER BY l.timestamp DESC LIMIT ?'
+    params.append(limit)
+    
+    cursor.execute(query, params)
+    logs = cursor.fetchall()
+    
+    conn.close()
+    return [dict(log) for log in logs]
+
+def get_user_location_history(telegram_id: int, days: int = 30) -> List[Dict[str, Any]]:
+    """Получение истории местоположений пользователя"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT * FROM location_logs 
+        WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)
+        AND timestamp >= datetime('now', '-{} days')
+        ORDER BY timestamp DESC
+    '''.format(days), (telegram_id,))
+    
     logs = cursor.fetchall()
     conn.close()
-    return logs
+    
+    return [dict(log) for log in logs]
 
-def get_all_logs(date=None):
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
+def get_active_users_by_location() -> Dict[str, List[Dict[str, Any]]]:
+    """Получение активных пользователей по локациям"""
+    conn = get_db_connection()
     cursor = conn.cursor()
-
-    if date:
-        cursor.execute('''
-        SELECT u.full_name, l.action, l.location, l.comment, l.timestamp
-        FROM logs l
-        JOIN users u ON l.user_id = u.id
-        WHERE DATE(l.timestamp) = ?
-        ORDER BY l.timestamp DESC
-        ''', (date,))
-    else:
-        cursor.execute('''
-        SELECT u.full_name, l.action, l.location, l.comment, l.timestamp
-        FROM logs l
-        JOIN users u ON l.user_id = u.id
-        ORDER BY l.timestamp DESC
-        ''')
-
-    logs = cursor.fetchall()
+    
+    cursor.execute('''
+        SELECT s.location, u.full_name, u.telegram_id, s.entered_at
+        FROM active_sessions s
+        JOIN users u ON s.user_id = u.id
+        ORDER BY s.location, u.full_name
+    ''')
+    
+    results = cursor.fetchall()
     conn.close()
-    return logs
+    
+    locations = {}
+    for result in results:
+        location = result['location']
+        if location not in locations:
+            locations[location] = []
+        locations[location].append(dict(result))
+    
+    return locations
 
-def is_admin(tg_id):
-    conn = sqlite3.connect(DB_NAME)
+def get_users_without_location() -> List[Dict[str, Any]]:
+    """Получение пользователей, которые не указали местоположение"""
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM admins WHERE tg_id = ?", (tg_id,))
-    result = cursor.fetchone()[0]
-    conn.close()
-    return result > 0
-
-def get_all_users():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users")
+    
+    cursor.execute('''
+        SELECT u.* FROM users u
+        LEFT JOIN active_sessions s ON u.id = s.user_id
+        WHERE s.id IS NULL
+        ORDER BY u.full_name
+    ''')
+    
     users = cursor.fetchall()
     conn.close()
-    return users
+    
+    return [dict(user) for user in users]
 
-def get_all_admins():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
+# Функции для работы с админскими операциями
+def add_admin_log(admin_id: int, action: str, target_user_id: int = None, details: str = None):
+    """Добавление записи об административной операции"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO admin_logs (admin_id, action, target_user_id, details)
+            VALUES (?, ?, ?, ?)
+        ''', (admin_id, action, target_user_id, details))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+def get_admin_logs(limit: int = 50) -> List[Dict[str, Any]]:
+    """Получение логов административных операций"""
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM admins")
-    admins = cursor.fetchall()
-    conn.close()
-    return admins
-
-def get_daily_stats(date):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
+    
     cursor.execute('''
-    SELECT location, COUNT(*) as count
-    FROM logs
-    WHERE DATE(timestamp) = ? AND action = 'Убыл'
-    GROUP BY location
-    ''', (date,))
+        SELECT l.*, u1.full_name as admin_name, u2.full_name as target_name
+        FROM admin_logs l
+        JOIN users u1 ON l.admin_id = u1.id
+        LEFT JOIN users u2 ON l.target_user_id = u2.id
+        ORDER BY l.timestamp DESC
+        LIMIT ?
+    ''', (limit,))
+    
+    logs = cursor.fetchall()
+    conn.close()
+    
+    return [dict(log) for log in logs]
 
-    stats = cursor.fetchall()
+# Функции для очистки данных
+def clear_location_logs(period: str = 'all') -> int:
+    """Очистка логов местоположений"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    if period == 'day':
+        cursor.execute('''
+            DELETE FROM location_logs 
+            WHERE timestamp < datetime('now', '-1 day')
+        ''')
+    elif period == 'week':
+        cursor.execute('''
+            DELETE FROM location_logs 
+            WHERE timestamp < datetime('now', '-7 days')
+        ''')
+    elif period == 'month':
+        cursor.execute('''
+            DELETE FROM location_logs 
+            WHERE timestamp < datetime('now', '-30 days')
+        ''')
+    elif period == 'all':
+        cursor.execute('DELETE FROM location_logs')
+    
+    deleted_count = cursor.rowcount
+    conn.commit()
+    conn.close()
+    
+    return deleted_count
+
+def clear_admin_logs(period: str = 'all') -> int:
+    """Очистка логов административных операций"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    if period == 'day':
+        cursor.execute('''
+            DELETE FROM admin_logs 
+            WHERE timestamp < datetime('now', '-1 day')
+        ''')
+    elif period == 'week':
+        cursor.execute('''
+            DELETE FROM admin_logs 
+            WHERE timestamp < datetime('now', '-7 days')
+        ''')
+    elif period == 'month':
+        cursor.execute('''
+            DELETE FROM admin_logs 
+            WHERE timestamp < datetime('now', '-30 days')
+        ''')
+    elif period == 'all':
+        cursor.execute('DELETE FROM admin_logs')
+    
+    deleted_count = cursor.rowcount
+    conn.commit()
+    conn.close()
+    
+    return deleted_count
+
+def clear_all_locations() -> int:
+    """Очистка всех активных местоположений (все покинули)"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Получаем всех пользователей с активными сессиями
+    cursor.execute('''
+        SELECT s.user_id, u.telegram_id, s.location
+        FROM active_sessions s
+        JOIN users u ON s.user_id = u.id
+    ''')
+    
+    active_users = cursor.fetchall()
+    
+    # Добавляем записи о выходе для всех
+    for user in active_users:
+        cursor.execute('''
+            INSERT INTO location_logs (user_id, location, action)
+            VALUES (?, ?, 'left')
+        ''', (user['user_id'], user['location']))
+    
+    # Очищаем активные сессии
+    cursor.execute('DELETE FROM active_sessions')
+    
+    count = len(active_users)
+    conn.commit()
+    conn.close()
+    
+    return count
+
+def mark_all_as_arrived(location: str) -> int:
+    """Отметить всех пользователей как прибывших в определенное место"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Получаем всех пользователей
+    cursor.execute('SELECT id, telegram_id FROM users')
+    all_users = cursor.fetchall()
+    
+    count = 0
+    for user in all_users:
+        user_id = user['id']
+        
+        # Удаляем предыдущую активную сессию
+        cursor.execute('DELETE FROM active_sessions WHERE user_id = ?', (user_id,))
+        
+        # Добавляем новую активную сессию
+        cursor.execute('''
+            INSERT INTO active_sessions (user_id, location)
+            VALUES (?, ?)
+        ''', (user_id, location))
+        
+        # Добавляем запись в лог
+        cursor.execute('''
+            INSERT INTO location_logs (user_id, location, action)
+            VALUES (?, ?, 'arrived')
+        ''', (user_id, location))
+        
+        count += 1
+    
+    conn.commit()
+    conn.close()
+    
+    return count
+
+def get_database_stats() -> Dict[str, int]:
+    """Получение статистики базы данных"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    stats = {}
+    
+    # Количество пользователей
+    cursor.execute('SELECT COUNT(*) FROM users')
+    stats['users'] = cursor.fetchone()[0]
+    
+    # Количество админов
+    cursor.execute('SELECT COUNT(*) FROM users WHERE is_admin = 1')
+    stats['admins'] = cursor.fetchone()[0]
+    
+    # Количество записей в логах
+    cursor.execute('SELECT COUNT(*) FROM location_logs')
+    stats['location_logs'] = cursor.fetchone()[0]
+    
+    # Количество активных сессий
+    cursor.execute('SELECT COUNT(*) FROM active_sessions')
+    stats['active_sessions'] = cursor.fetchone()[0]
+    
+    # Количество админских логов
+    cursor.execute('SELECT COUNT(*) FROM admin_logs')
+    stats['admin_logs'] = cursor.fetchone()[0]
+    
     conn.close()
     return stats
-
-def add_user(full_name, tg_id=None):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    try:
-        if tg_id:
-            cursor.execute('''
-            INSERT INTO users (tg_id, full_name)
-            VALUES (?, ?)
-            ''', (tg_id, full_name))
-        else:
-            cursor.execute('''
-            INSERT INTO users (full_name)
-            VALUES (?)
-            ''', (full_name,))
-
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
-        conn.close()
-
-def delete_user(user_id):
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    cursor.execute("DELETE FROM logs WHERE user_id = ?", (user_id,))
-
-    conn.commit()
-    conn.close()
-
-def clear_logs():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM logs")
-
-    conn.commit()
-    conn.close()
-
-def get_logs_by_name_filter(name_filter, limit=50):
-    """Получает логи, отфильтрованные по фамилии/имени"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT l.id, l.action, l.location, l.comment, l.timestamp, u.full_name 
-        FROM logs l
-        JOIN users u ON l.user_id = u.id
-        WHERE u.full_name LIKE ?
-        ORDER BY l.timestamp DESC
-        LIMIT ?
-    """, (f'%{name_filter}%', limit))
-    
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return [
-        {
-            'id': row[0],
-            'action': row[1],
-            'location': row[2],
-            'comment': row[3],
-            'timestamp': row[4],
-            'full_name': row[5]
-        }
-        for row in rows
-    ]
-
-def get_logs_by_date(date_str, limit=50):
-    """Получает логи за определенную дату"""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT l.id, l.action, l.location, l.comment, l.timestamp, u.full_name 
-        FROM logs l
-        JOIN users u ON l.user_id = u.id
-        WHERE DATE(l.timestamp) = ?
-        ORDER BY l.timestamp DESC
-        LIMIT ?
-    """, (date_str, limit))
-    
-    rows = cursor.fetchall()
-    conn.close()
-    
-    return [
-        {
-            'id': row[0],
-            'action': row[1],
-            'location': row[2],
-            'comment': row[3],
-            'timestamp': row[4],
-            'full_name': row[5]
-        }
-        for row in rows
-    ]
