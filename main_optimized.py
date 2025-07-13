@@ -52,8 +52,10 @@ LOCATIONS = {
     "📝 Другое": "Другое"
 }
 
-# 🟢 Локации "в расположении"
-IN_BASE_LOCATIONS = ["ОБРМП", "Рабочка", "Столовая"]
+# 🟢 Логика "в расположении":
+# - По умолчанию все в части (нет записей = в расположении)
+# - Статус "Прибыл" = в расположении
+# - Статус "Убыл" = не в расположении
 
 # 💬 Шуточные уведомления для не отметившихся (50 фраз)
 FUNNY_REMINDERS = [
@@ -973,20 +975,17 @@ async def send_admin_summary(application):
     # Разделяем на группы
     in_base = []
     away = []
-    no_records = []
     
     for user_id, name, location, custom_location, status, created_at in results:
-        if not location:  # Нет записей
-            no_records.append(name)
+        if not location:  # Нет записей - по умолчанию в части
+            in_base.append(f"• {name}")
         else:
             display_location = custom_location if custom_location else location
             
             if status == "✅ Прибыл":
-                if location in IN_BASE_LOCATIONS:
-                    in_base.append(f"• {name}")
-                else:
-                    in_base.append(f"• {name} ({display_location})")
-            else:  # Убыл
+                # Прибыл = в расположении (независимо от локации)
+                in_base.append(f"• {name}")
+            else:  # Убыл = не в расположении
                 away.append(f"• {name} → {display_location}")
     
     # Формируем сводку
@@ -998,10 +997,7 @@ async def send_admin_summary(application):
     if away:
         summary += f"🔴 НЕ В РАСПОЛОЖЕНИИ ({len(away)}):\n" + "\n".join(away) + "\n\n"
     
-    if no_records:
-        summary += f"⚫ НЕТ ОТМЕТОК ({len(no_records)}):\n" + "\n".join([f"• {name}" for name in no_records]) + "\n\n"
-    
-    summary += f"� Всего личного состава: {len(results)}"
+    summary += f"📋 Всего личного состава: {len(results)}"
     
     # Отправляем всем админам
     for admin_id in ADMIN_IDS:
