@@ -2,466 +2,320 @@
 Система уведомлений для бота учета персонала
 """
 
-import logging
 import asyncio
+import logging
 import random
-from datetime import datetime, time, timedelta
-from typing import List, Optional
-from telegram import Bot
-from telegram.ext import Application
-
-from database import get_all_users, get_users_without_location, add_admin_log
-from utils import (
-    is_notifications_enabled, get_notification_times, get_notification_interval,
-    get_bro_phrases, get_current_time, is_admin
-)
+import json
+from datetime import datetime, date, time
+from typing import List, Dict, Optional
+from aiogram import Bot
+from aiogram.types import ParseMode
+from database import Database
+from config import Config
 
 logger = logging.getLogger(__name__)
 
-# Глобальная переменная для хранения задач
-notification_tasks = []
-
-async def start_notification_scheduler(app: Application):
-    """Запуск планировщика уведомлений"""
-    if not is_notifications_enabled():
-        logger.info("Уведомления отключены")
-        return
+class NotificationSystem:
+    """Система уведомлений с расписанием и креативными текстами"""
     
-    logger.info("Запуск системы уведомлений")
+    def __init__(self, bot: Bot, db: Database):
+        self.bot = bot
+        self.db = db
+        self.config = Config()
+        self.notification_texts = self.config.get_notification_texts()
+        
+        # Настройки уведомлений
+        self.enabled = True
+        self.daily_summary_enabled = True
+        self.reminders_enabled = True
+        self.silent_mode = False
     
-    # Запускаем различные типы уведомлений
-    asyncio.create_task(schedule_morning_notifications(app))
-    asyncio.create_task(schedule_evening_notifications(app))
-    asyncio.create_task(schedule_periodic_reminders(app))
-
-async def schedule_morning_notifications(app: Application):
-    """Планировщик утренних уведомлений"""
-    morning_time, _ = get_notification_times()
-    
-    while True:
+    async def send_notification(self, user_id: int, message: str, disable_notification: bool = False):
+        """Отправка уведомления пользователю"""
         try:
-            now = get_current_time()
-            target_time = datetime.combine(now.date(), time.fromisoformat(morning_time))
+            # Проверяем настройки пользователя
+            settings = await self.db.get_notification_settings(user_id)
+            if not settings.get('enabled', True):
+                return False
             
-            # Если время уже прошло, планируем на завтра
-            if target_time <= now:
-                target_time += timedelta(days=1)
+            # Проверяем тихий режим
+            if settings.get('silent_mode', False) or self.silent_mode:
+                disable_notification = True
             
-            # Ждем до целевого времени
-            wait_seconds = (target_time - now).total_seconds()
-            await asyncio.sleep(wait_seconds)
-            
-            # Отправляем утренние уведомления
-            await send_morning_notifications(app.bot)
+            await self.bot.send_message(
+                chat_id=user_id,
+                text=message,
+                parse_mode=ParseMode.MARKDOWN,
+                disable_notification=disable_notification
+            )
+            return True
             
         except Exception as e:
-            logger.error(f"Ошибка в планировщике утренних уведомлений: {e}")
-            await asyncio.sleep(3600)  # Повторить через час
-
-async def schedule_evening_notifications(app: Application):
-    """Планировщик вечерних уведомлений"""
-    _, evening_time = get_notification_times()
+            logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
+            return False
     
-    while True:
+    async def send_daily_summary(self):
+        """Отправка ежедневной сводки в 19:00"""
+        if not self.daily_summary_enabled:
+            return
+        
         try:
-            now = get_current_time()
-            target_time = datetime.combine(now.date(), time.fromisoformat(evening_time))
+            logger.info("📊 Отправка ежедневной сводки...")
             
-            # Если время уже прошло, планируем на завтра
-            if target_time <= now:
-                target_time += timedelta(days=1)
+            # Получаем статистику
+            total_users = await self.db.get_total_users()
+            present_users = await self.db.get_present_users()
+            absent_users = await self.db.get_absent_users_count()
             
-            # Ждем до целевого времени
-            wait_seconds = (target_time - now).total_seconds()
-            await asyncio.sleep(wait_seconds)
+            # Получаем отсутствующих пользователей
+            absent_list = await self.db.get_absent_users()
             
-            # Отправляем вечерние уведомления
-            await send_evening_notifications(app.bot)
+            # Выбираем случайный заголовок
+            header = random.choice(self.notification_texts.get("daily_summary", [
+                "📊 Ежедневная сводка готовности",
+                "📈 Отчет по личному составу",
+                "📋 Статистика на сегодня"
+            ]))
+            
+            # Формируем сообщение
+            message = f"{header}\n\n"
+            message += f"📅 Дата: {date.today().strftime('%d.%m.%Y')}\n"
+            message += f"🕐 Время: {datetime.now().strftime('%H:%M')}\n\n"
+            message += f"👥 Всего бойцов: {total_users}\n"
+            message += f"✅ Присутствуют: {present_users}\n"
+            message += f"❌ Отсутствуют: {absent_users}\n\n"
+            
+            if absent_list:
+                message += "📋 *Отсутствующие:*\n"
+                for user in absent_list:
+                    location = user.get('location', 'не указано')
+                    message += f"• {user['name']} ({location})\n"
+            else:
+                message += "🎉 *Все бойцы на месте!*"
+            
+            # Отправляем админам
+            admin_ids = self.config.ADMIN_IDS
+            for admin_id in admin_ids:
+                await self.send_notification(admin_id, message)
+            
+            logger.info(f"✅ Ежедневная сводка отправлена {len(admin_ids)} админам")
             
         except Exception as e:
-            logger.error(f"Ошибка в планировщике вечерних уведомлений: {e}")
-            await asyncio.sleep(3600)  # Повторить через час
-
-async def schedule_periodic_reminders(app: Application):
-    """Планировщик периодических напоминаний"""
-    interval_hours = get_notification_interval()
+            logger.error(f"❌ Ошибка отправки ежедневной сводки: {e}")
     
-    while True:
+    async def send_reminders(self):
+        """Отправка напоминаний в 20:30"""
+        if not self.reminders_enabled:
+            return
+        
         try:
-            # Ждем указанный интервал
-            await asyncio.sleep(interval_hours * 3600)
+            logger.info("🔔 Отправка напоминаний...")
+            
+            # Получаем отсутствующих пользователей
+            absent_users = await self.db.get_absent_users()
+            
+            if not absent_users:
+                logger.info("✅ Все бойцы уже отметились")
+                return
+            
+            # Выбираем случайный текст напоминания
+            reminder_text = random.choice(self.notification_texts.get("reminders", [
+                "🔔 Эй, боец! Не забудь отметиться!",
+                "⏰ Время отметиться, товарищ!",
+                "📱 Ты еще не отметился сегодня!",
+                "🎯 Пора показать, что ты на месте!",
+                "💪 Не подведи команду - отметьсь!",
+                "🚀 Команда ждет твоей отметки!",
+                "⚡ Быстрая отметка - быстрая победа!",
+                "🎖️ Отметись и покажи свою готовность!",
+                "🔥 Горячая отметка для горячих бойцов!",
+                "🌟 Звездная отметка для звездного бойца!"
+            ]))
             
             # Отправляем напоминания
-            await send_periodic_reminders(app.bot)
-            
-        except Exception as e:
-            logger.error(f"Ошибка в планировщике периодических напоминаний: {e}")
-            await asyncio.sleep(3600)  # Повторить через час
-
-async def send_morning_notifications(bot: Bot):
-    """Отправка утренних уведомлений"""
-    try:
-        users_without_location = get_users_without_location()
-        
-        if not users_without_location:
-            logger.info("Утренние уведомления: все пользователи указали местоположение")
-            return
-        
-        logger.info(f"Отправка утренних уведомлений {len(users_without_location)} пользователям")
-        
-        for user in users_without_location:
-            try:
-                message = f"🌅 <b>Доброе утро, {user['full_name']}!</b>\n\n"
-                message += f"📍 Не забудьте отметить свое местоположение на сегодня.\n\n"
-                message += f"� Хорошего дня!"
-                
-                await bot.send_message(
-                    chat_id=user['telegram_id'],
-                    text=message,
-                    parse_mode='HTML'
-                )
-                
-                # Небольшая задержка между сообщениями
-                await asyncio.sleep(0.5)
-                
-            except Exception as e:
-                logger.error(f"Ошибка отправки утреннего уведомления пользователю {user['telegram_id']}: {e}")
-                
-    except Exception as e:
-        logger.error(f"Ошибка в отправке утренних уведомлений: {e}")
-
-async def send_evening_notifications(bot: Bot):
-    """Отправка вечерних уведомлений"""
-    try:
-        users_without_location = get_users_without_location()
-        
-        if not users_without_location:
-            logger.info("Вечерние уведомления: все пользователи указали местоположение")
-            return
-        
-        logger.info(f"Отправка вечерних уведомлений {len(users_without_location)} пользователям")
-        
-        for user in users_without_location:
-            try:
-                message = f"🌆 <b>Добрый вечер, {user['full_name']}!</b>\n\n"
-                message += f"📍 Вы так и не указали свое местоположение сегодня.\n\n"
-                message += f"⏰ Не забудьте отметиться перед завершением дня!"
-                
-                await bot.send_message(
-                    chat_id=user['telegram_id'],
-                    text=message,
-                    parse_mode='HTML'
-                )
-                
-                # Небольшая задержка между сообщениями
-                await asyncio.sleep(0.5)
-                
-            except Exception as e:
-                logger.error(f"Ошибка отправки вечернего уведомления пользователю {user['telegram_id']}: {e}")
-                
-    except Exception as e:
-        logger.error(f"Ошибка в отправке вечерних уведомлений: {e}")
-
-async def send_periodic_reminders(bot: Bot):
-    """Отправка периодических напоминаний"""
-    try:
-        users_without_location = get_users_without_location()
-        
-        if not users_without_location:
-            logger.info("Периодические напоминания: все пользователи указали местоположение")
-            return
-        
-        logger.info(f"Отправка периодических напоминаний {len(users_without_location)} пользователям")
-        
-        bro_phrases = get_bro_phrases()
-        
-        for user in users_without_location:
-            try:
-                # Выбираем случайную братскую фразу
-                phrase = random.choice(bro_phrases)
-                
-                message = f"📢 <b>{user['full_name']}</b>\n\n"
-                message += f"{phrase}\n\n"
-                message += f"⏰ Время: {get_current_time().strftime('%H:%M')}"
-                
-                await bot.send_message(
-                    chat_id=user['telegram_id'],
-                    text=message,
-                    parse_mode='HTML'
-                )
-                
-                # Небольшая задержка между сообщениями
-                await asyncio.sleep(0.5)
-                
-            except Exception as e:
-                logger.error(f"Ошибка отправки периодического напоминания пользователю {user['telegram_id']}: {e}")
-                
-    except Exception as e:
-        logger.error(f"Ошибка в отправке периодических напоминаний: {e}")
-
-async def send_admin_notification(bot: Bot, message: str, admin_id: Optional[int] = None):
-    """Отправка уведомления администратору"""
-    try:
-        if admin_id:
-            # Отправляем конкретному админу
-            await bot.send_message(
-                chat_id=admin_id,
-                text=f"🔔 <b>Уведомление администратора</b>\n\n{message}",
-                parse_mode='HTML'
-            )
-        else:
-            # Отправляем всем админам
-            all_users = get_all_users()
-            admins = [user for user in all_users if user['is_admin']]
-            
-            for admin in admins:
-                try:
-                    await bot.send_message(
-                        chat_id=admin['telegram_id'],
-                        text=f"🔔 <b>Уведомление администратора</b>\n\n{message}",
-                        parse_mode='HTML'
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка отправки уведомления админу {admin['telegram_id']}: {e}")
+            sent_count = 0
+            for user in absent_users:
+                user_id = user.get('telegram_id')
+                if user_id:
+                    message = f"{reminder_text}\n\n"
+                    message += f"👤 Боец: {user['name']}\n"
+                    message += f"📍 Локация: {user.get('location', 'не указано')}\n"
+                    message += f"🕐 Время: {datetime.now().strftime('%H:%M')}\n\n"
+                    message += "💡 Используйте /start для отметки"
                     
-    except Exception as e:
-        logger.error(f"Ошибка в отправке уведомления администратору: {e}")
-
-async def send_system_notification(bot: Bot, message: str):
-    """Отправка системного уведомления всем пользователям"""
-    try:
-        all_users = get_all_users()
-        
-        logger.info(f"Отправка системного уведомления {len(all_users)} пользователям")
-        
-        for user in all_users:
-            try:
-                await bot.send_message(
-                    chat_id=user['telegram_id'],
-                    text=f"📢 <b>Системное уведомление</b>\n\n{message}",
-                    parse_mode='HTML'
-                )
-                
-                # Небольшая задержка между сообщениями
-                await asyncio.sleep(0.1)
-                
-            except Exception as e:
-                logger.error(f"Ошибка отправки системного уведомления пользователю {user['telegram_id']}: {e}")
-                
-    except Exception as e:
-        logger.error(f"Ошибка в отправке системного уведомления: {e}")
-
-async def notify_about_user_action(bot: Bot, user_data: dict, action: str, location: str):
-    """Уведомление о действии пользователя"""
-    try:
-        if not is_notifications_enabled():
-            return
-        
-        # Определяем эмодзи для действия
-        action_emoji = "✅" if action == "arrived" else "❌"
-        action_text = "прибыл в" if action == "arrived" else "покинул"
-        
-        message = f"{action_emoji} <b>{user_data['full_name']}</b> {action_text} <b>{location}</b>\n"
-        message += f"🕒 Время: {get_current_time().strftime('%H:%M')}\n"
-        message += f"🆔 ID: <code>{user_data['telegram_id']}</code>"
-        
-        # Отправляем уведомление всем админам
-        await send_admin_notification(bot, message)
-        
-    except Exception as e:
-        logger.error(f"Ошибка в уведомлении о действии пользователя: {e}")
-
-async def notify_about_registration(bot: Bot, user_data: dict):
-    """Уведомление о регистрации нового пользователя"""
-    try:
-        if not is_notifications_enabled():
-            return
-        
-        message = f"👤 <b>Новый пользователь зарегистрирован</b>\n\n"
-        message += f"📝 ФИО: <b>{user_data['full_name']}</b>\n"
-        message += f"🆔 ID: <code>{user_data['telegram_id']}</code>\n"
-        
-        if user_data.get('username'):
-            message += f"📱 Username: @{user_data['username']}\n"
-        
-        message += f"🕒 Время регистрации: {get_current_time().strftime('%H:%M')}"
-        
-        # Отправляем уведомление всем админам
-        await send_admin_notification(bot, message)
-        
-    except Exception as e:
-        logger.error(f"Ошибка в уведомлении о регистрации: {e}")
-
-async def send_daily_summary(bot: Bot):
-    """Отправка ежедневной сводки"""
-    try:
-        from database import get_active_users_by_location, get_database_stats
-        
-        stats = get_database_stats()
-        locations_data = get_active_users_by_location()
-        users_without_location = get_users_without_location()
-        
-        summary = f"📊 <b>Ежедневная сводка</b>\n"
-        summary += f"📅 Дата: {get_current_time().strftime('%d.%m.%Y')}\n"
-        summary += f"🕒 Время: {get_current_time().strftime('%H:%M')}\n\n"
-        
-        summary += f"📈 <b>Статистика:</b>\n"
-        summary += f"👥 Всего пользователей: {stats['users']}\n"
-        summary += f"📍 Активных сессий: {stats['active_sessions']}\n"
-        summary += f"🔴 Без местоположения: {len(users_without_location)}\n\n"
-        
-        if locations_data:
-            summary += f"📍 <b>Распределение по локациям:</b>\n"
-            for location, users in locations_data.items():
-                summary += f"  • {location}: {len(users)} чел.\n"
-        
-        if users_without_location:
-            summary += f"\n🔴 <b>Не указали местоположение:</b>\n"
-            for user in users_without_location:
-                summary += f"  • {user['full_name']}\n"
-        
-        # Отправляем сводку всем админам
-        await send_admin_notification(bot, summary)
-        
-    except Exception as e:
-        logger.error(f"Ошибка в отправке ежедневной сводки: {e}")
-
-async def send_weekly_report(bot: Bot):
-    """Отправка еженедельного отчета"""
-    try:
-        from database import get_location_logs, get_database_stats
-        
-        # Получаем логи за неделю
-        week_logs = get_location_logs(limit=1000)  # Больше записей для недельного отчета
-        stats = get_database_stats()
-        
-        report = f"📋 <b>Еженедельный отчет</b>\n"
-        report += f"📅 Дата: {get_current_time().strftime('%d.%m.%Y')}\n"
-        report += f"🕒 Время: {get_current_time().strftime('%H:%M')}\n\n"
-        
-        report += f"📊 <b>Статистика за неделю:</b>\n"
-        report += f"📋 Всего записей: {len(week_logs)}\n"
-        report += f"👥 Активных пользователей: {stats['active_sessions']}\n"
-        report += f"📍 Всего локаций: {len(set(log['location'] for log in week_logs))}\n\n"
-        
-        # Анализ активности по дням
-        if week_logs:
-            from collections import defaultdict
-            daily_activity = defaultdict(int)
+                    if await self.send_notification(user_id, message):
+                        sent_count += 1
             
-            for log in week_logs:
-                date = log['timestamp'][:10]  # Получаем дату
-                daily_activity[date] += 1
-            
-            report += f"📈 <b>Активность по дням:</b>\n"
-            for date, count in sorted(daily_activity.items()):
-                report += f"  • {date}: {count} действий\n"
-        
-        # Отправляем отчет всем админам
-        await send_admin_notification(bot, report)
-        
-    except Exception as e:
-        logger.error(f"Ошибка в отправке еженедельного отчета: {e}")
-
-async def send_custom_notification(bot: Bot, user_ids: List[int], message: str, sender_id: int):
-    """Отправка пользовательского уведомления"""
-    try:
-        # Логируем отправку
-        add_admin_log(sender_id, "Отправка пользовательского уведомления", 
-                     details=f"Получателей: {len(user_ids)}")
-        
-        success_count = 0
-        
-        for user_id in user_ids:
-            try:
-                await bot.send_message(
-                    chat_id=user_id,
-                    text=f"📢 <b>Уведомление</b>\n\n{message}",
-                    parse_mode='HTML'
-                )
-                success_count += 1
-                
-                # Небольшая задержка между сообщениями
-                await asyncio.sleep(0.1)
-                
-            except Exception as e:
-                logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
-        
-        # Уведомляем отправителя о результате
-        await bot.send_message(
-            chat_id=sender_id,
-            text=f"✅ <b>Уведомление отправлено</b>\n\n"
-                 f"� Успешно: {success_count} из {len(user_ids)}\n"
-                 f"🕒 Время: {get_current_time().strftime('%H:%M')}",
-            parse_mode='HTML'
-        )
-        
-    except Exception as e:
-        logger.error(f"Ошибка в отправке пользовательского уведомления: {e}")
-
-async def stop_notifications():
-    """Остановка всех уведомлений"""
-    global notification_tasks
-    
-    logger.info("Остановка системы уведомлений")
-    
-    for task in notification_tasks:
-        if not task.done():
-            task.cancel()
-    
-    notification_tasks.clear()
-
-def is_notification_time():
-    """Проверка, время ли отправлять уведомления"""
-    current_time = get_current_time()
-    current_hour = current_time.hour
-    
-    # Не отправляем уведомления ночью (с 22:00 до 7:00)
-    if current_hour >= 22 or current_hour < 7:
-        return False
-    
-    return True
-
-async def send_emergency_notification(bot: Bot, message: str, priority: str = "high"):
-    """Отправка экстренного уведомления"""
-    try:
-        priority_emoji = {
-            "low": "🔵",
-            "medium": "🟡", 
-            "high": "🔴",
-            "critical": "🚨"
-        }.get(priority, "📢")
-        
-        notification_text = f"{priority_emoji} <b>ЭКСТРЕННОЕ УВЕДОМЛЕНИЕ</b>\n\n"
-        notification_text += f"⚠️ Приоритет: {priority.upper()}\n\n"
-        notification_text += f"{message}\n\n"
-        notification_text += f"🕒 Время: {get_current_time().strftime('%d.%m.%Y %H:%M')}"
-        
-        # Отправляем всем пользователям
-        await send_system_notification(bot, notification_text)
-        
-    except Exception as e:
-        logger.error(f"Ошибка в отправке экстренного уведомления: {e}")
-
-async def schedule_daily_summary(app: Application):
-    """Планировщик ежедневной сводки"""
-    while True:
-        try:
-            now = get_current_time()
-            # Отправляем сводку в 19:00
-            target_time = datetime.combine(now.date(), time(19, 0))
-            
-            # Если время уже прошло, планируем на завтра
-            if target_time <= now:
-                target_time += timedelta(days=1)
-            
-            # Ждем до целевого времени
-            wait_seconds = (target_time - now).total_seconds()
-            await asyncio.sleep(wait_seconds)
-            
-            # Отправляем ежедневную сводку
-            await send_daily_summary(app.bot)
+            logger.info(f"✅ Напоминания отправлены {sent_count} бойцам")
             
         except Exception as e:
-            logger.error(f"Ошибка в планировщике ежедневной сводки: {e}")
-            await asyncio.sleep(3600)  # Повторить через час
+            logger.error(f"❌ Ошибка отправки напоминаний: {e}")
+    
+    async def send_attendance_notification(self, user_id: int, user_name: str, location: str = None):
+        """Уведомление об отметке присутствия"""
+        try:
+            message = (
+                f"✅ *Отметка зарегистрирована!*\n\n"
+                f"👤 Боец: {user_name}\n"
+                f"📍 Локация: {location or 'не указано'}\n"
+                f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+                f"📅 Дата: {date.today().strftime('%d.%m.%Y')}"
+            )
+            
+            await self.send_notification(user_id, message)
+            
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления об отметке: {e}")
+    
+    async def send_admin_notification(self, action: str, details: str, user_name: str = None):
+        """Уведомление админов о действиях"""
+        try:
+            # Выбираем эмодзи для действия
+            action_emojis = {
+                "user_added": "➕",
+                "user_deleted": "❌",
+                "name_changed": "✏️",
+                "attendance_marked": "✅",
+                "admin_action": "👑",
+                "system_event": "⚙️"
+            }
+            
+            emoji = action_emojis.get(action, "📝")
+            
+            message = (
+                f"{emoji} *Админ-уведомление*\n\n"
+                f"🔧 Действие: {action}\n"
+                f"📋 Детали: {details}\n"
+            )
+            
+            if user_name:
+                message += f"👤 Пользователь: {user_name}\n"
+            
+            message += f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}"
+            
+            # Отправляем всем админам
+            admin_ids = self.config.ADMIN_IDS
+            for admin_id in admin_ids:
+                await self.send_notification(admin_id, message, disable_notification=True)
+            
+        except Exception as e:
+            logger.error(f"Ошибка отправки админ-уведомления: {e}")
+    
+    async def send_mass_notification(self, message: str, user_ids: List[int] = None):
+        """Массовая рассылка уведомлений"""
+        try:
+            if not user_ids:
+                # Получаем всех пользователей
+                users = await self.db.get_all_users()
+                user_ids = [user['telegram_id'] for user in users]
+            
+            sent_count = 0
+            for user_id in user_ids:
+                if await self.send_notification(user_id, message):
+                    sent_count += 1
+                await asyncio.sleep(0.1)  # Небольшая задержка между отправками
+            
+            logger.info(f"✅ Массовое уведомление отправлено {sent_count} пользователям")
+            return sent_count
+            
+        except Exception as e:
+            logger.error(f"Ошибка массовой рассылки: {e}")
+            return 0
+    
+    async def send_emergency_notification(self, message: str):
+        """Экстренное уведомление (игнорирует настройки)"""
+        try:
+            admin_ids = self.config.ADMIN_IDS
+            for admin_id in admin_ids:
+                await self.bot.send_message(
+                    chat_id=admin_id,
+                    text=f"🚨 *ЭКСТРЕННОЕ УВЕДОМЛЕНИЕ*\n\n{message}",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            
+            logger.info(f"🚨 Экстренное уведомление отправлено {len(admin_ids)} админам")
+            
+        except Exception as e:
+            logger.error(f"Ошибка экстренного уведомления: {e}")
+    
+    async def update_notification_texts(self, new_texts: Dict):
+        """Обновление текстов уведомлений"""
+        try:
+            self.notification_texts.update(new_texts)
+            self.config.save_notification_texts(self.notification_texts)
+            logger.info("✅ Тексты уведомлений обновлены")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка обновления текстов уведомлений: {e}")
+            return False
+    
+    async def get_notification_stats(self) -> Dict:
+        """Получение статистики уведомлений"""
+        try:
+            users = await self.db.get_all_users()
+            total_users = len(users)
+            
+            enabled_count = 0
+            disabled_count = 0
+            silent_count = 0
+            
+            for user in users:
+                settings = await self.db.get_notification_settings(user['telegram_id'])
+                if settings.get('enabled', True):
+                    enabled_count += 1
+                else:
+                    disabled_count += 1
+                
+                if settings.get('silent_mode', False):
+                    silent_count += 1
+            
+            return {
+                'total_users': total_users,
+                'notifications_enabled': enabled_count,
+                'notifications_disabled': disabled_count,
+                'silent_mode': silent_count,
+                'system_enabled': self.enabled,
+                'daily_summary_enabled': self.daily_summary_enabled,
+                'reminders_enabled': self.reminders_enabled
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения статистики уведомлений: {e}")
+            return {}
+    
+    async def toggle_notifications(self, enabled: bool):
+        """Включение/выключение системы уведомлений"""
+        self.enabled = enabled
+        logger.info(f"🔔 Система уведомлений {'включена' if enabled else 'отключена'}")
+    
+    async def toggle_daily_summary(self, enabled: bool):
+        """Включение/выключение ежедневной сводки"""
+        self.daily_summary_enabled = enabled
+        logger.info(f"📊 Ежедневная сводка {'включена' if enabled else 'отключена'}")
+    
+    async def toggle_reminders(self, enabled: bool):
+        """Включение/выключение напоминаний"""
+        self.reminders_enabled = enabled
+        logger.info(f"⏰ Напоминания {'включены' if enabled else 'отключены'}")
+    
+    async def toggle_silent_mode(self, enabled: bool):
+        """Включение/выключение тихого режима"""
+        self.silent_mode = enabled
+        logger.info(f"🔇 Тихий режим {'включен' if enabled else 'отключен'}")
+    
+    async def test_notification(self, user_id: int):
+        """Тестовое уведомление"""
+        try:
+            message = (
+                "🧪 *Тестовое уведомление*\n\n"
+                "✅ Система уведомлений работает корректно!\n"
+                f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+                f"📅 Дата: {date.today().strftime('%d.%m.%Y')}"
+            )
+            
+            await self.send_notification(user_id, message)
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка тестового уведомления: {e}")
+            return False

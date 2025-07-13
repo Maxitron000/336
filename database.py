@@ -2,591 +2,433 @@
 База данных для бота учета персонала
 """
 import sqlite3
+import asyncio
+import aiosqlite
+import logging
+from datetime import datetime, date
+from typing import List, Dict, Optional, Tuple
+import json
 import os
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
-import pytz
-from utils import get_timezone
 
-DB_PATH = os.getenv('DB_PATH', 'data/personnel.db')
+logger = logging.getLogger(__name__)
 
-def init_db():
-    """Инициализация базы данных"""
-    # Создаем директорию если её нет
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+class Database:
+    """Класс для работы с базой данных"""
     
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    def __init__(self, db_path: str = 'data/bot_database.db'):
+        self.db_path = db_path
+        self.connection = None
     
-    # Таблица пользователей с системой ролей
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            telegram_id INTEGER UNIQUE NOT NULL,
-            full_name TEXT NOT NULL,
-            username TEXT,
-            role TEXT DEFAULT 'soldier' CHECK (role IN ('soldier', 'admin', 'main_admin')),
-            registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+    async def init(self):
+        """Инициализация базы данных"""
+        try:
+            # Создаем директорию если не существует
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+            
+            # Подключаемся к базе данных
+            self.connection = await aiosqlite.connect(self.db_path)
+            
+            # Создаем таблицы
+            await self._create_tables()
+            
+            logger.info("✅ База данных инициализирована")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации БД: {e}")
+            raise
     
-    # Добавляем колонку role если её нет (для обратной совместимости)
-    cursor.execute("PRAGMA table_info(users)")
-    columns = [column[1] for column in cursor.fetchall()]
-    if 'role' not in columns:
-        cursor.execute('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "soldier"')
-        # Обновляем существующих админов
-        cursor.execute('UPDATE users SET role = "admin" WHERE is_admin = 1')
+    async def _create_tables(self):
+        """Создание таблиц базы данных"""
+        async with self.connection.cursor() as cursor:
+            # Таблица пользователей
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY,
+                    telegram_id INTEGER UNIQUE NOT NULL,
+                    name TEXT NOT NULL,
+                    location TEXT,
+                    is_admin BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Таблица отметок
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS attendance (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    date DATE NOT NULL,
+                    time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    location TEXT,
+                    status TEXT DEFAULT 'present',
+                    FOREIGN KEY (user_id) REFERENCES users (id),
+                    UNIQUE(user_id, date)
+                )
+            ''')
+            
+            # Таблица событий (журнал)
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER,
+                    action TEXT NOT NULL,
+                    details TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            
+            # Таблица настроек уведомлений
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS notification_settings (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER UNIQUE NOT NULL,
+                    enabled BOOLEAN DEFAULT TRUE,
+                    daily_summary BOOLEAN DEFAULT TRUE,
+                    reminders BOOLEAN DEFAULT TRUE,
+                    silent_mode BOOLEAN DEFAULT FALSE,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            
+            # Создаем индексы для оптимизации
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_user ON attendance(user_id)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)')
+            
+            await self.connection.commit()
     
-    # Добавляем колонку is_admin если её нет (для обратной совместимости)
-    if 'is_admin' not in columns:
-        cursor.execute('ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0')
-        cursor.execute('UPDATE users SET is_admin = 1 WHERE role IN ("admin", "main_admin")')
+    async def close(self):
+        """Закрытие соединения с базой данных"""
+        if self.connection:
+            await self.connection.close()
     
-    # Таблица записей о местоположении
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS location_logs (
-            id INTEGER PRIMARY KEY,
-            user_id INTEGER,
-            location TEXT NOT NULL,
-            action TEXT NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    ''')
-    
-    # Таблица активных сессий (кто где сейчас находится)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS active_sessions (
-            id INTEGER PRIMARY KEY,
-            user_id INTEGER,
-            location TEXT NOT NULL,
-            entered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    ''')
-    
-    # Таблица админских операций
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS admin_logs (
-            id INTEGER PRIMARY KEY,
-            admin_id INTEGER,
-            action TEXT NOT NULL,
-            target_user_id INTEGER,
-            details TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (admin_id) REFERENCES users (id),
-            FOREIGN KEY (target_user_id) REFERENCES users (id)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-
-def get_db_connection():
-    """Получение соединения с базой данных"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def close_db():
-    """Закрытие соединения с базой данных"""
-    pass  # SQLite не требует явного закрытия
-
-# Функции для работы с пользователями
-def add_user(telegram_id: int, full_name: str, username: str = None, role: str = 'soldier') -> bool:
-    """Добавление нового пользователя с ролью"""
-    if role not in ['soldier', 'admin', 'main_admin']:
-        role = 'soldier'
-    
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Определяем статус админа
-        is_admin = 1 if role in ['admin', 'main_admin'] else 0
-        
-        cursor.execute('''
-            INSERT INTO users (telegram_id, full_name, username, role, is_admin)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (telegram_id, full_name, username, role, is_admin))
-        
-        conn.commit()
-        conn.close()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-def get_user(telegram_id: int) -> Optional[Dict[str, Any]]:
-    """Получение пользователя по telegram_id"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT * FROM users WHERE telegram_id = ?', (telegram_id,))
-    user = cursor.fetchone()
-    
-    conn.close()
-    
-    if user:
-        return dict(user)
-    return None
-
-def get_all_users() -> List[Dict[str, Any]]:
-    """Получение всех пользователей"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT * FROM users ORDER BY full_name')
-    users = cursor.fetchall()
-    
-    conn.close()
-    return [dict(user) for user in users]
-
-def update_user_activity(telegram_id: int):
-    """Обновление времени последней активности пользователя"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        UPDATE users 
-        SET last_activity = CURRENT_TIMESTAMP 
-        WHERE telegram_id = ?
-    ''', (telegram_id,))
-    
-    conn.commit()
-    conn.close()
-
-def set_user_role(telegram_id: int, role: str) -> bool:
-    """Установка роли пользователя (soldier, admin, main_admin)"""
-    if role not in ['soldier', 'admin', 'main_admin']:
-        return False
-    
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Обновляем роль и статус админа
-        is_admin = 1 if role in ['admin', 'main_admin'] else 0
-        
-        cursor.execute('''
-            UPDATE users 
-            SET role = ?, is_admin = ?
-            WHERE telegram_id = ?
-        ''', (role, is_admin, telegram_id))
-        
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-def get_user_role(telegram_id: int) -> str:
-    """Получение роли пользователя"""
-    user = get_user(telegram_id)
-    if user:
-        return user.get('role', 'soldier')
-    return 'soldier'
-
-def is_main_admin(telegram_id: int) -> bool:
-    """Проверка является ли пользователь главным админом"""
-    return get_user_role(telegram_id) == 'main_admin'
-
-def is_admin_or_main_admin(telegram_id: int) -> bool:
-    """Проверка является ли пользователь админом или главным админом"""
-    role = get_user_role(telegram_id)
-    return role in ['admin', 'main_admin']
-
-def get_all_admins() -> List[Dict[str, Any]]:
-    """Получение всех админов и главных админов"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT * FROM users 
-        WHERE role IN ('admin', 'main_admin') 
-        ORDER BY role DESC, full_name
-    ''')
-    admins = cursor.fetchall()
-    
-    conn.close()
-    return [dict(admin) for admin in admins]
-
-def get_main_admins() -> List[Dict[str, Any]]:
-    """Получение всех главных админов"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT * FROM users 
-        WHERE role = 'main_admin' 
-        ORDER BY full_name
-    ''')
-    main_admins = cursor.fetchall()
-    
-    conn.close()
-    return [dict(admin) for admin in main_admins]
-
-def delete_user(telegram_id: int) -> bool:
-    """Удаление пользователя"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Получаем user_id
-        cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (telegram_id,))
-        user = cursor.fetchone()
-        
-        if not user:
+    # Методы для работы с пользователями
+    async def add_user(self, telegram_id: int, name: str, location: str = None) -> bool:
+        """Добавление нового пользователя"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    INSERT OR REPLACE INTO users (telegram_id, name, location)
+                    VALUES (?, ?, ?)
+                ''', (telegram_id, name, location))
+                
+                user_id = cursor.lastrowid
+                
+                # Добавляем настройки уведомлений по умолчанию
+                await cursor.execute('''
+                    INSERT OR IGNORE INTO notification_settings (user_id)
+                    VALUES (?)
+                ''', (user_id,))
+                
+                await self.connection.commit()
+                
+                # Логируем событие
+                await self.log_event(user_id, "user_added", f"Добавлен пользователь: {name}")
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Ошибка добавления пользователя: {e}")
             return False
-        
-        user_id = user['id']
-        
-        # Удаляем связанные записи
-        cursor.execute('DELETE FROM location_logs WHERE user_id = ?', (user_id,))
-        cursor.execute('DELETE FROM active_sessions WHERE user_id = ?', (user_id,))
-        cursor.execute('DELETE FROM admin_logs WHERE target_user_id = ?', (user_id,))
-        
-        # Удаляем пользователя
-        cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
-        
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-# Функции для работы с записями местоположения
-def add_location_log(telegram_id: int, location: str, action: str) -> bool:
-    """Добавление записи о местоположении"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        # Получаем user_id
-        cursor.execute('SELECT id FROM users WHERE telegram_id = ?', (telegram_id,))
-        user = cursor.fetchone()
-        
-        if not user:
+    
+    async def get_user(self, telegram_id: int) -> Optional[Dict]:
+        """Получение пользователя по Telegram ID"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT * FROM users WHERE telegram_id = ?
+                ''', (telegram_id,))
+                
+                row = await cursor.fetchone()
+                if row:
+                    columns = [description[0] for description in cursor.description]
+                    return dict(zip(columns, row))
+                return None
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения пользователя: {e}")
+            return None
+    
+    async def update_user_name(self, telegram_id: int, new_name: str) -> bool:
+        """Обновление имени пользователя"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    UPDATE users SET name = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE telegram_id = ?
+                ''', (new_name, telegram_id))
+                
+                if cursor.rowcount > 0:
+                    await self.connection.commit()
+                    
+                    # Логируем событие
+                    user = await self.get_user(telegram_id)
+                    if user:
+                        await self.log_event(user['id'], "name_changed", f"Имя изменено на: {new_name}")
+                    
+                    return True
+                return False
+                
+        except Exception as e:
+            logger.error(f"Ошибка обновления имени: {e}")
             return False
-        
-        user_id = user['id']
-        
-        # Добавляем запись
-        cursor.execute('''
-            INSERT INTO location_logs (user_id, location, action)
-            VALUES (?, ?, ?)
-        ''', (user_id, location, action))
-        
-        # Обновляем активную сессию
-        if action == 'arrived':
-            # Удаляем предыдущую активную сессию
-            cursor.execute('DELETE FROM active_sessions WHERE user_id = ?', (user_id,))
-            # Добавляем новую активную сессию
-            cursor.execute('''
-                INSERT INTO active_sessions (user_id, location)
-                VALUES (?, ?)
-            ''', (user_id, location))
-        elif action == 'left':
-            # Удаляем активную сессию
-            cursor.execute('DELETE FROM active_sessions WHERE user_id = ?', (user_id,))
-        
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-def get_user_current_location(telegram_id: int) -> Optional[str]:
-    """Получение текущего местоположения пользователя"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
     
-    cursor.execute('''
-        SELECT location FROM active_sessions 
-        WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)
-    ''', (telegram_id,))
+    async def delete_user(self, telegram_id: int) -> bool:
+        """Удаление пользователя"""
+        try:
+            async with self.connection.cursor() as cursor:
+                # Получаем информацию о пользователе для логирования
+                user = await self.get_user(telegram_id)
+                
+                await cursor.execute('DELETE FROM users WHERE telegram_id = ?', (telegram_id,))
+                
+                if cursor.rowcount > 0:
+                    await self.connection.commit()
+                    
+                    # Логируем событие
+                    if user:
+                        await self.log_event(None, "user_deleted", f"Удален пользователь: {user['name']}")
+                    
+                    return True
+                return False
+                
+        except Exception as e:
+            logger.error(f"Ошибка удаления пользователя: {e}")
+            return False
     
-    result = cursor.fetchone()
-    conn.close()
+    async def get_all_users(self) -> List[Dict]:
+        """Получение всех пользователей"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('SELECT * FROM users ORDER BY name')
+                rows = await cursor.fetchall()
+                
+                columns = [description[0] for description in cursor.description]
+                return [dict(zip(columns, row)) for row in rows]
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения пользователей: {e}")
+            return []
     
-    return result['location'] if result else None
-
-def get_location_logs(limit: int = 100, user_filter: str = None, date_filter: str = None) -> List[Dict[str, Any]]:
-    """Получение логов местоположения с фильтрами"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    # Методы для работы с отметками
+    async def mark_attendance(self, telegram_id: int, location: str = None) -> bool:
+        """Отметка присутствия пользователя"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return False
+            
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    INSERT OR REPLACE INTO attendance (user_id, date, location)
+                    VALUES (?, ?, ?)
+                ''', (user['id'], date.today(), location))
+                
+                await self.connection.commit()
+                
+                # Логируем событие
+                await self.log_event(user['id'], "attendance_marked", f"Отметка: {location or 'не указано'}")
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Ошибка отметки присутствия: {e}")
+            return False
     
-    query = '''
-        SELECT l.*, u.full_name, u.telegram_id
-        FROM location_logs l
-        JOIN users u ON l.user_id = u.id
-        WHERE 1=1
-    '''
-    params = []
+    async def get_attendance_today(self) -> List[Dict]:
+        """Получение отметок за сегодня"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT u.name, u.location, a.time, a.status
+                    FROM attendance a
+                    JOIN users u ON a.user_id = u.id
+                    WHERE a.date = ?
+                    ORDER BY a.time
+                ''', (date.today(),))
+                
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        'name': row[0],
+                        'location': row[1],
+                        'time': row[2],
+                        'status': row[3]
+                    }
+                    for row in rows
+                ]
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения отметок: {e}")
+            return []
     
-    if user_filter:
-        query += ' AND u.full_name LIKE ?'
-        params.append(f'%{user_filter}%')
+    async def get_absent_users(self) -> List[Dict]:
+        """Получение отсутствующих пользователей"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT u.id, u.name, u.location
+                    FROM users u
+                    LEFT JOIN attendance a ON u.id = a.user_id AND a.date = ?
+                    WHERE a.id IS NULL
+                    ORDER BY u.name
+                ''', (date.today(),))
+                
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        'id': row[0],
+                        'name': row[1],
+                        'location': row[2]
+                    }
+                    for row in rows
+                ]
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения отсутствующих: {e}")
+            return []
     
-    if date_filter:
-        query += ' AND DATE(l.timestamp) = ?'
-        params.append(date_filter)
+    # Статистические методы
+    async def get_total_users(self) -> int:
+        """Общее количество пользователей"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('SELECT COUNT(*) FROM users')
+                result = await cursor.fetchone()
+                return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"Ошибка подсчета пользователей: {e}")
+            return 0
     
-    query += ' ORDER BY l.timestamp DESC LIMIT ?'
-    params.append(limit)
+    async def get_present_users(self) -> int:
+        """Количество присутствующих сегодня"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('SELECT COUNT(*) FROM attendance WHERE date = ?', (date.today(),))
+                result = await cursor.fetchone()
+                return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"Ошибка подсчета присутствующих: {e}")
+            return 0
     
-    cursor.execute(query, params)
-    logs = cursor.fetchall()
+    async def get_absent_users_count(self) -> int:
+        """Количество отсутствующих сегодня"""
+        total = await self.get_total_users()
+        present = await self.get_present_users()
+        return total - present
     
-    conn.close()
-    return [dict(log) for log in logs]
-
-def get_user_location_history(telegram_id: int, days: int = 30) -> List[Dict[str, Any]]:
-    """Получение истории местоположений пользователя"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    # Методы для журнала событий
+    async def log_event(self, user_id: Optional[int], action: str, details: str = None):
+        """Логирование события"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    INSERT INTO events (user_id, action, details)
+                    VALUES (?, ?, ?)
+                ''', (user_id, action, details))
+                await self.connection.commit()
+        except Exception as e:
+            logger.error(f"Ошибка логирования события: {e}")
     
-    cursor.execute('''
-        SELECT * FROM location_logs 
-        WHERE user_id = (SELECT id FROM users WHERE telegram_id = ?)
-        AND timestamp >= datetime('now', '-{} days')
-        ORDER BY timestamp DESC
-    '''.format(days), (telegram_id,))
+    async def get_events(self, limit: int = 100) -> List[Dict]:
+        """Получение последних событий"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT e.action, e.details, e.timestamp, u.name
+                    FROM events e
+                    LEFT JOIN users u ON e.user_id = u.id
+                    ORDER BY e.timestamp DESC
+                    LIMIT ?
+                ''', (limit,))
+                
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        'action': row[0],
+                        'details': row[1],
+                        'timestamp': row[2],
+                        'user_name': row[3] or 'Система'
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"Ошибка получения событий: {e}")
+            return []
     
-    logs = cursor.fetchall()
-    conn.close()
+    # Методы для экспорта
+    async def export_attendance_csv(self, start_date: date, end_date: date) -> str:
+        """Экспорт отметок в CSV"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT u.name, a.date, a.time, a.location, a.status
+                    FROM attendance a
+                    JOIN users u ON a.user_id = u.id
+                    WHERE a.date BETWEEN ? AND ?
+                    ORDER BY a.date DESC, a.time DESC
+                ''', (start_date, end_date))
+                
+                rows = await cursor.fetchall()
+                
+                csv_content = "Имя,Дата,Время,Локация,Статус\n"
+                for row in rows:
+                    csv_content += f"{row[0]},{row[1]},{row[2]},{row[3] or ''},{row[4]}\n"
+                
+                return csv_content
+                
+        except Exception as e:
+            logger.error(f"Ошибка экспорта CSV: {e}")
+            return ""
     
-    return [dict(log) for log in logs]
-
-def get_active_users_by_location() -> Dict[str, List[Dict[str, Any]]]:
-    """Получение активных пользователей по локациям"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    # Методы для уведомлений
+    async def get_notification_settings(self, telegram_id: int) -> Dict:
+        """Получение настроек уведомлений пользователя"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return {}
+            
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT * FROM notification_settings WHERE user_id = ?
+                ''', (user['id'],))
+                
+                row = await cursor.fetchone()
+                if row:
+                    columns = [description[0] for description in cursor.description]
+                    return dict(zip(columns, row))
+                return {}
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения настроек уведомлений: {e}")
+            return {}
     
-    cursor.execute('''
-        SELECT s.location, u.full_name, u.telegram_id, s.entered_at
-        FROM active_sessions s
-        JOIN users u ON s.user_id = u.id
-        ORDER BY s.location, u.full_name
-    ''')
-    
-    results = cursor.fetchall()
-    conn.close()
-    
-    locations = {}
-    for result in results:
-        location = result['location']
-        if location not in locations:
-            locations[location] = []
-        locations[location].append(dict(result))
-    
-    return locations
-
-def get_users_without_location() -> List[Dict[str, Any]]:
-    """Получение пользователей, которые не указали местоположение"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT u.* FROM users u
-        LEFT JOIN active_sessions s ON u.id = s.user_id
-        WHERE s.id IS NULL
-        ORDER BY u.full_name
-    ''')
-    
-    users = cursor.fetchall()
-    conn.close()
-    
-    return [dict(user) for user in users]
-
-# Функции для работы с админскими операциями
-def add_admin_log(admin_id: int, action: str, target_user_id: int = None, details: str = None):
-    """Добавление записи об административной операции"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO admin_logs (admin_id, action, target_user_id, details)
-            VALUES (?, ?, ?, ?)
-        ''', (admin_id, action, target_user_id, details))
-        
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-def get_admin_logs(limit: int = 50) -> List[Dict[str, Any]]:
-    """Получение логов административных операций"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT l.*, u1.full_name as admin_name, u2.full_name as target_name
-        FROM admin_logs l
-        JOIN users u1 ON l.admin_id = u1.id
-        LEFT JOIN users u2 ON l.target_user_id = u2.id
-        ORDER BY l.timestamp DESC
-        LIMIT ?
-    ''', (limit,))
-    
-    logs = cursor.fetchall()
-    conn.close()
-    
-    return [dict(log) for log in logs]
-
-# Функции для очистки данных
-def clear_location_logs(period: str = 'all') -> int:
-    """Очистка логов местоположений"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    if period == 'day':
-        cursor.execute('''
-            DELETE FROM location_logs 
-            WHERE timestamp < datetime('now', '-1 day')
-        ''')
-    elif period == 'week':
-        cursor.execute('''
-            DELETE FROM location_logs 
-            WHERE timestamp < datetime('now', '-7 days')
-        ''')
-    elif period == 'month':
-        cursor.execute('''
-            DELETE FROM location_logs 
-            WHERE timestamp < datetime('now', '-30 days')
-        ''')
-    elif period == 'all':
-        cursor.execute('DELETE FROM location_logs')
-    
-    deleted_count = cursor.rowcount
-    conn.commit()
-    conn.close()
-    
-    return deleted_count
-
-def clear_admin_logs(period: str = 'all') -> int:
-    """Очистка логов административных операций"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    if period == 'day':
-        cursor.execute('''
-            DELETE FROM admin_logs 
-            WHERE timestamp < datetime('now', '-1 day')
-        ''')
-    elif period == 'week':
-        cursor.execute('''
-            DELETE FROM admin_logs 
-            WHERE timestamp < datetime('now', '-7 days')
-        ''')
-    elif period == 'month':
-        cursor.execute('''
-            DELETE FROM admin_logs 
-            WHERE timestamp < datetime('now', '-30 days')
-        ''')
-    elif period == 'all':
-        cursor.execute('DELETE FROM admin_logs')
-    
-    deleted_count = cursor.rowcount
-    conn.commit()
-    conn.close()
-    
-    return deleted_count
-
-def clear_all_locations() -> int:
-    """Очистка всех активных местоположений (все покинули)"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Получаем всех пользователей с активными сессиями
-    cursor.execute('''
-        SELECT s.user_id, u.telegram_id, s.location
-        FROM active_sessions s
-        JOIN users u ON s.user_id = u.id
-    ''')
-    
-    active_users = cursor.fetchall()
-    
-    # Добавляем записи о выходе для всех
-    for user in active_users:
-        cursor.execute('''
-            INSERT INTO location_logs (user_id, location, action)
-            VALUES (?, ?, 'left')
-        ''', (user['user_id'], user['location']))
-    
-    # Очищаем активные сессии
-    cursor.execute('DELETE FROM active_sessions')
-    
-    count = len(active_users)
-    conn.commit()
-    conn.close()
-    
-    return count
-
-def mark_all_as_arrived(location: str) -> int:
-    """Отметить всех пользователей как прибывших в определенное место"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Получаем всех пользователей
-    cursor.execute('SELECT id, telegram_id FROM users')
-    all_users = cursor.fetchall()
-    
-    count = 0
-    for user in all_users:
-        user_id = user['id']
-        
-        # Удаляем предыдущую активную сессию
-        cursor.execute('DELETE FROM active_sessions WHERE user_id = ?', (user_id,))
-        
-        # Добавляем новую активную сессию
-        cursor.execute('''
-            INSERT INTO active_sessions (user_id, location)
-            VALUES (?, ?)
-        ''', (user_id, location))
-        
-        # Добавляем запись в лог
-        cursor.execute('''
-            INSERT INTO location_logs (user_id, location, action)
-            VALUES (?, ?, 'arrived')
-        ''', (user_id, location))
-        
-        count += 1
-    
-    conn.commit()
-    conn.close()
-    
-    return count
-
-def get_database_stats() -> Dict[str, int]:
-    """Получение статистики базы данных"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    stats = {}
-    
-    # Количество пользователей
-    cursor.execute('SELECT COUNT(*) FROM users')
-    stats['users'] = cursor.fetchone()[0]
-    
-    # Количество админов
-    cursor.execute('SELECT COUNT(*) FROM users WHERE is_admin = 1')
-    stats['admins'] = cursor.fetchone()[0]
-    
-    # Количество записей в логах
-    cursor.execute('SELECT COUNT(*) FROM location_logs')
-    stats['location_logs'] = cursor.fetchone()[0]
-    
-    # Количество активных сессий
-    cursor.execute('SELECT COUNT(*) FROM active_sessions')
-    stats['active_sessions'] = cursor.fetchone()[0]
-    
-    # Количество админских логов
-    cursor.execute('SELECT COUNT(*) FROM admin_logs')
-    stats['admin_logs'] = cursor.fetchone()[0]
-    
-    conn.close()
-    return stats
+    async def update_notification_settings(self, telegram_id: int, settings: Dict) -> bool:
+        """Обновление настроек уведомлений"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return False
+            
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    UPDATE notification_settings 
+                    SET enabled = ?, daily_summary = ?, reminders = ?, silent_mode = ?
+                    WHERE user_id = ?
+                ''', (
+                    settings.get('enabled', True),
+                    settings.get('daily_summary', True),
+                    settings.get('reminders', True),
+                    settings.get('silent_mode', False),
+                    user['id']
+                ))
+                
+                await self.connection.commit()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Ошибка обновления настроек уведомлений: {e}")
+            return False

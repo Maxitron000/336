@@ -3,18 +3,16 @@
 """
 
 import logging
-from telegram import Update
-from telegram.ext import ContextTypes
-from telegram.error import TelegramError
-
-from database import (
-    get_user, add_user, update_user_activity, add_location_log,
-    get_user_current_location, get_user_location_history,
-    add_admin_log, get_active_users_by_location, get_users_without_location
-)
+from aiogram import Dispatcher, types
+from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.types import ParseMode
+from database import Database
+from admin import AdminPanel
+from notifications import NotificationSystem
 from keyboards import (
-    get_main_keyboard, get_locations_keyboard, get_action_keyboard,
-    get_admin_keyboard, get_cancel_keyboard
+    get_main_keyboard, get_location_keyboard, get_cancel_keyboard,
+    admin_cb, user_cb
 )
 from utils import (
     validate_full_name, is_admin, get_locations_list, 
@@ -25,616 +23,517 @@ from admin import handle_admin_callback
 
 logger = logging.getLogger(__name__)
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start - Чистый чат"""
-    user_id = update.effective_user.id
-    username = update.effective_user.username
+# Состояния FSM
+class UserStates(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_location = State()
+    waiting_for_custom_location = State()
+    waiting_for_admin_action = State()
+    waiting_for_personnel_action = State()
+    waiting_for_settings_action = State()
+    waiting_for_confirmation = State()
+
+def register_handlers(dp: Dispatcher, admin_panel: AdminPanel, notification_system: NotificationSystem):
+    """Регистрация всех обработчиков"""
     
-    # Получаем пользователя из базы
-    user = get_user(user_id)
+    # Обработчики команд
+    dp.register_message_handler(start_command, commands=['start'])
+    dp.register_message_handler(help_command, commands=['help'])
+    dp.register_message_handler(status_command, commands=['status'])
+    dp.register_message_handler(admin_command, commands=['admin'])
     
-    if not user:
-        # Новый пользователь
-        await update.message.reply_text(
-            "👋 Добро пожаловать в систему учета персонала!\n\n"
-            "Для начала работы необходимо зарегистрироваться.\n"
-            "Используйте команду /register для регистрации.",
-            reply_markup=get_cancel_keyboard()
+    # Обработчики текстовых сообщений
+    dp.register_message_handler(handle_text_message, content_types=['text'])
+    
+    # Обработчики callback-запросов
+    dp.register_callback_query_handler(handle_callback_query, lambda c: True)
+
+async def start_command(message: types.Message, state: FSMContext):
+    """Обработчик команды /start"""
+    user_id = message.from_user.id
+    
+    # Удаляем сообщение с командой для чистоты чата
+    try:
+        await message.delete()
+    except:
+        pass
+    
+    # Проверяем, является ли пользователь админом
+    is_admin = await admin_panel.is_admin(user_id)
+    
+    if is_admin:
+        # Показываем админ-панель
+        await message.answer(
+            "🏠 *Главное меню админ-панели*\n\n"
+            "Выберите нужный раздел:",
+            reply_markup=admin_panel.get_keyboard_for_action("dashboard"),
+            parse_mode=ParseMode.MARKDOWN
         )
-        # Удаляем сообщение с командой /start для чистого чата
-        await update.message.delete()
-        return
-    
-    # Обновляем активность пользователя
-    update_user_activity(user_id)
-    
-    # Приветственное сообщение
-    welcome_text = f"👋 Привет, <b>{user['full_name']}</b>!\n\n"
-    welcome_text += "📍 Система учета персонала готова к работе.\n\n"
-    
-    current_location = get_user_current_location(user_id)
-    if current_location:
-        welcome_text += f"📍 Текущее местоположение: <b>{current_location}</b>\n\n"
     else:
-        welcome_text += "📍 Местоположение не указано\n\n"
-    
-    welcome_text += "Выберите действие:"
-    
-    await update.message.reply_text(
-        welcome_text,
-        parse_mode='HTML',
-        reply_markup=get_main_keyboard()
-    )
-    
-    # Удаляем сообщение с командой /start для чистого чата
-    await update.message.delete()
+        # Проверяем, зарегистрирован ли пользователь
+        user = await admin_panel.db.get_user(user_id)
+        if user:
+            # Показываем обычное меню
+            await message.answer(
+                "👋 *Добро пожаловать в систему учета личного состава!*\n\n"
+                "Выберите действие:",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            # Регистрируем нового пользователя
+            await message.answer(
+                "👋 *Добро пожаловать!*\n\n"
+                "Для начала работы необходимо зарегистрироваться.\n"
+                "Введите ваше ФИО:",
+                reply_markup=get_cancel_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            await UserStates.waiting_for_name.set()
 
-async def register_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /register"""
-    user_id = update.effective_user.id
-    username = update.effective_user.username
-    
-    # Проверяем, не зарегистрирован ли уже пользователь
-    existing_user = get_user(user_id)
-    if existing_user:
-        await update.message.reply_text(
-            f"✅ Вы уже зарегистрированы как <b>{existing_user['full_name']}</b>",
-            parse_mode='HTML',
-            reply_markup=get_main_keyboard()
-        )
-        return
-    
-    # Сохраняем состояние ожидания ФИО
-    context.user_data['waiting_for_fullname'] = True
-    
-    await update.message.reply_text(
-        "📝 <b>Регистрация в системе</b>\n\n"
-        "Введите ваше ФИО в формате: <b>Фамилия И.О.</b>\n"
-        "Например: <code>Петров П.П.</code>\n\n"
-        "⚠️ Обязательно указывайте инициалы с точками!",
-        parse_mode='HTML',
-        reply_markup=get_cancel_keyboard()
-    )
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(message: types.Message):
     """Обработчик команды /help"""
-    help_text = """
-🤖 <b>Справка по боту учета персонала</b>
-
-<b>Основные команды:</b>
-• /start - Запуск бота
-• /register - Регистрация в системе
-• /status - Мой текущий статус
-• /help - Эта справка
-
-<b>Основные функции:</b>
-📍 <b>Отметить местоположение</b> - Указать где вы находитесь
-📊 <b>Мой статус</b> - Просмотр текущего статуса
-🔧 <b>Админ-панель</b> - Для администраторов
-
-<b>Доступные локации:</b>
-🏥 Поликлиника
-⚓ ОБРМП
-🌆 Калининград
-🛒 Магазин
-🍲 Столовая
-🏨 Госпиталь
-⚙️ Рабочка
-🩺 ВВК
-🏛️ МФЦ
-🚓 Патруль
-
-<b>Действия с локациями:</b>
-✅ Прибыл - Отметить прибытие
-❌ Покинул - Отметить убытие
-
-<b>Для администраторов:</b>
-• Управление пользователями
-• Просмотр логов и статистики
-• Экспорт данных
-• Системные настройки
-
-❓ По вопросам работы бота обращайтесь к администратору.
-"""
-    
-    await update.message.reply_text(
-        help_text,
-        parse_mode='HTML',
-        reply_markup=get_main_keyboard()
+    help_text = (
+        "📖 *Справка по командам:*\n\n"
+        "🔹 `/start` - Главное меню\n"
+        "🔹 `/help` - Эта справка\n"
+        "🔹 `/status` - Статус системы\n\n"
+        "💡 *Для админов:*\n"
+        "🔹 `/admin` - Админ-панель\n"
+        "🔹 `/export` - Экспорт данных\n"
+        "🔹 `/backup` - Резервная копия\n\n"
+        "📱 *Основные действия:*\n"
+        "🔹 Нажмите '✅ Отметиться' для отметки присутствия\n"
+        "🔹 Нажмите '📍 Указать локацию' для смены местоположения\n"
+        "🔹 Нажмите '📊 Мой статус' для просмотра вашего статуса"
     )
+    
+    await message.answer(help_text, parse_mode=ParseMode.MARKDOWN)
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def status_command(message: types.Message):
     """Обработчик команды /status"""
-    user_id = update.effective_user.id
-    
-    user = get_user(user_id)
-    if not user:
-        await update.message.reply_text(
-            "❌ Вы не зарегистрированы в системе.\n"
-            "Используйте команду /register для регистрации.",
-            reply_markup=get_cancel_keyboard()
+    try:
+        # Получаем статистику
+        total_users = await admin_panel.db.get_total_users()
+        present_users = await admin_panel.db.get_present_users()
+        absent_users = await admin_panel.db.get_absent_users_count()
+        
+        status_text = (
+            "📊 *Статус системы:*\n\n"
+            f"👥 Всего бойцов: {total_users}\n"
+            f"✅ Присутствуют: {present_users}\n"
+            f"❌ Отсутствуют: {absent_users}\n"
+            f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+            f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}"
         )
-        return
+        
+        await message.answer(status_text, parse_mode=ParseMode.MARKDOWN)
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения статуса: {e}")
+        await message.answer("❌ Ошибка получения статуса системы")
+
+async def admin_command(message: types.Message):
+    """Обработчик команды /admin"""
+    user_id = message.from_user.id
     
-    # Обновляем активность
-    update_user_activity(user_id)
-    
-    # Информация о пользователе
-    status_text = generate_user_info(user)
-    
-    # Текущее местоположение
-    current_location = get_user_current_location(user_id)
-    if current_location:
-        status_text += f"\n📍 <b>Текущее местоположение:</b> {current_location}\n"
+    if await admin_panel.is_admin(user_id):
+        await message.answer(
+            "🏠 *Главное меню админ-панели*\n\n"
+            "Выберите нужный раздел:",
+            reply_markup=admin_panel.get_keyboard_for_action("dashboard"),
+            parse_mode=ParseMode.MARKDOWN
+        )
     else:
-        status_text += f"\n📍 <b>Местоположение не указано</b>\n"
-    
-    # Последние действия
-    recent_history = get_user_location_history(user_id, days=7)
-    if recent_history:
-        status_text += f"\n📋 <b>Последние действия:</b>\n"
-        for log in recent_history[:5]:  # Показываем только последние 5
-            log_entry = generate_log_entry(log)
-            status_text += f"• {log_entry}\n"
-    
-    await update.message.reply_text(
-        status_text,
-        parse_mode='HTML',
-        reply_markup=get_main_keyboard()
-    )
+        await message.answer("❌ У вас нет доступа к админ-панели")
 
-async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /cancel"""
-    # Очищаем состояние пользователя
-    context.user_data.clear()
-    
-    if update.message:
-        await update.message.reply_text(
-            "❌ Действие отменено.",
-            reply_markup=get_main_keyboard()
-        )
-    elif update.callback_query:
-        await update.callback_query.edit_message_text(
-            "❌ Действие отменено.",
-            reply_markup=get_main_keyboard()
-        )
-
-async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /admin - Админ-панель v2.0"""
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text(
-            "❌ У вас нет прав администратора.",
-            reply_markup=get_main_keyboard()
-        )
-        return
-    
-    user = get_user(user_id)
-    if not user:
-        await update.message.reply_text(
-            "❌ Вы не зарегистрированы в системе.",
-            reply_markup=get_cancel_keyboard()
-        )
-        return
-    
-    # Логируем вход в админ-панель
-    add_admin_log(user_id, "Вход в админ-панель")
-    
-    admin_text = f"🔧 <b>Админ-панель</b>\n\n"
-    admin_text += f"Добро пожаловать, <b>{user['full_name']}</b>!\n\n"
-    admin_text += "Выберите действие:"
-    
-    await update.message.reply_text(
-        admin_text,
-        parse_mode='HTML',
-        reply_markup=get_admin_keyboard()
-    )
-
-async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_text_message(message: types.Message, state: FSMContext):
     """Обработчик текстовых сообщений"""
-    user_id = update.effective_user.id
-    text = update.message.text
+    user_id = message.from_user.id
+    text = message.text
     
-    # Проверяем, ждем ли мы ввод ФИО
-    if context.user_data.get('waiting_for_fullname'):
-        await handle_fullname_input(update, context, text)
-        return
+    # Проверяем текущее состояние
+    current_state = await state.get_state()
     
-    # Проверяем, ждем ли мы ввод для поиска
-    if context.user_data.get('waiting_for_search'):
-        await handle_search_input(update, context, text)
-        return
-    
-    # Проверяем, ожидаем ли мы ввод кастомной локации
-    if context.user_data.get('waiting_for_custom_location'):
-        await handle_custom_location_input(update, context, text)
-        return
-    
-    # Проверяем, ожидаем ли мы ввод массового уведомления
-    if context.user_data.get('waiting_for_mass_notification'):
-        from admin_v2 import handle_mass_notification_input
-        await handle_mass_notification_input(update, context, text)
-        return
-    
-    # Обработка кнопок главного меню
-    if text == "📍 Отметить местоположение":
-        await handle_location_request(update, context)
-    elif text == "📊 Мой статус":
-        await status_command(update, context)
-    elif text == "❓ Справка":
-        await help_command(update, context)
-    elif text == "🔧 Админ-панель":
-        await admin_command(update, context)
+    if current_state == UserStates.waiting_for_name.state:
+        await handle_name_input(message, state, text)
+    elif current_state == UserStates.waiting_for_custom_location.state:
+        await handle_custom_location_input(message, state, text)
     else:
-        # Неизвестная команда
-        await update.message.reply_text(
+        # Обрабатываем обычные команды
+        await handle_regular_commands(message, text)
+
+async def handle_name_input(message: types.Message, state: FSMContext, name: str):
+    """Обработка ввода имени при регистрации"""
+    user_id = message.from_user.id
+    
+    try:
+        # Добавляем пользователя
+        success = await admin_panel.db.add_user(user_id, name)
+        
+        if success:
+            await message.answer(
+                f"✅ *Регистрация завершена!*\n\n"
+                f"👤 ФИО: {name}\n"
+                f"🆔 ID: {user_id}\n\n"
+                f"Теперь вы можете использовать все функции бота.",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            # Уведомляем админов
+            await notification_system.send_admin_notification(
+                "user_added", f"Новый пользователь зарегистрирован: {name}", name
+            )
+        else:
+            await message.answer(
+                "❌ Ошибка регистрации. Попробуйте еще раз.",
+                reply_markup=get_cancel_keyboard()
+            )
+            return
+            
+    except Exception as e:
+        logger.error(f"Ошибка регистрации пользователя: {e}")
+        await message.answer(
+            "❌ Произошла ошибка при регистрации. Попробуйте еще раз.",
+            reply_markup=get_cancel_keyboard()
+        )
+        return
+    
+    await state.finish()
+
+async def handle_custom_location_input(message: types.Message, state: FSMContext, location: str):
+    """Обработка ввода кастомной локации"""
+    user_id = message.from_user.id
+    
+    try:
+        # Отмечаем присутствие с кастомной локацией
+        success = await admin_panel.db.mark_attendance(user_id, location)
+        
+        if success:
+            user = await admin_panel.db.get_user(user_id)
+            await message.answer(
+                f"✅ *Отметка зарегистрирована!*\n\n"
+                f"👤 Боец: {user['name']}\n"
+                f"📍 Локация: {location}\n"
+                f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+                f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            # Отправляем уведомление
+            await notification_system.send_attendance_notification(user_id, user['name'], location)
+            
+            # Уведомляем админов
+            await notification_system.send_admin_notification(
+                "attendance_marked", f"Отметка: {location}", user['name']
+            )
+        else:
+            await message.answer(
+                "❌ Ошибка отметки. Попробуйте еще раз.",
+                reply_markup=get_main_keyboard()
+            )
+            
+    except Exception as e:
+        logger.error(f"Ошибка отметки с кастомной локацией: {e}")
+        await message.answer(
+            "❌ Произошла ошибка. Попробуйте еще раз.",
+            reply_markup=get_main_keyboard()
+        )
+    
+    await state.finish()
+
+async def handle_regular_commands(message: types.Message, text: str):
+    """Обработка обычных команд"""
+    user_id = message.from_user.id
+    
+    if text == "✅ Отметиться":
+        await handle_attendance(message)
+    elif text == "📍 Указать локацию":
+        await handle_location_selection(message)
+    elif text == "📊 Мой статус":
+        await handle_my_status(message)
+    elif text == "📖 Помощь":
+        await help_command(message)
+    else:
+        await message.answer(
             "❓ Неизвестная команда. Используйте кнопки меню или /help для справки.",
             reply_markup=get_main_keyboard()
         )
 
-async def handle_fullname_input(update: Update, context: ContextTypes.DEFAULT_TYPE, full_name: str):
-    """Обработка ввода ФИО при регистрации"""
-    user_id = update.effective_user.id
-    username = update.effective_user.username
-    
-    # Валидация ФИО
-    if not validate_full_name(full_name):
-        await update.message.reply_text(
-            "❌ <b>Неверный формат ФИО!</b>\n\n"
-            "Используйте формат: <b>Фамилия И.О.</b>\n"
-            "Например: <code>Петров П.П.</code>\n\n"
-            "⚠️ Обязательно указывайте инициалы с точками!",
-            parse_mode='HTML',
-            reply_markup=get_cancel_keyboard()
-        )
-        return
-    
-    # Регистрируем пользователя
-    if add_user(user_id, full_name, username):
-        # Очищаем состояние
-        context.user_data.clear()
-        
-        await update.message.reply_text(
-            f"✅ <b>Регистрация завершена!</b>\n\n"
-            f"Добро пожаловать, <b>{full_name}</b>!\n\n"
-            f"Теперь вы можете отмечать свое местоположение.",
-            parse_mode='HTML',
-            reply_markup=get_main_keyboard()
-        )
-        
-        logger.info(f"Новый пользователь зарегистрирован: {full_name} (ID: {user_id})")
-    else:
-        await update.message.reply_text(
-            "❌ Ошибка при регистрации. Попробуйте еще раз.",
-            reply_markup=get_cancel_keyboard()
-        )
-
-async def handle_search_input(update: Update, context: ContextTypes.DEFAULT_TYPE, search_text: str):
-    """Обработка ввода для поиска"""
-    # Передаем управление в админ-модуль
-    await handle_admin_callback(update, context, f"search_input:{search_text}")
-
-async def handle_location_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка запроса на отметку местоположения"""
-    user_id = update.effective_user.id
-    
-    # Проверяем регистрацию
-    user = get_user(user_id)
-    if not user:
-        await update.message.reply_text(
-            "❌ Вы не зарегистрированы в системе.\n"
-            "Используйте команду /register для регистрации.",
-            reply_markup=get_cancel_keyboard()
-        )
-        return
-    
-    # Обновляем активность
-    update_user_activity(user_id)
-    
-    # Показываем клавиатуру с локациями
-    await update.message.reply_text(
-        "📍 <b>Выберите локацию:</b>",
-        parse_mode='HTML',
-        reply_markup=get_locations_keyboard()
-    )
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик нажатий на inline кнопки"""
-    query = update.callback_query
-    user_id = query.from_user.id
-    data = query.data
+async def handle_attendance(message: types.Message):
+    """Обработка отметки присутствия"""
+    user_id = message.from_user.id
     
     try:
-        await query.answer()
-        
-        # Проверяем регистрацию пользователя
-        user = get_user(user_id)
-        if not user and not data.startswith('cancel'):
-            await query.edit_message_text(
-                "❌ Вы не зарегистрированы в системе.\n"
-                "Используйте команду /register для регистрации."
+        # Проверяем, зарегистрирован ли пользователь
+        user = await admin_panel.db.get_user(user_id)
+        if not user:
+            await message.answer(
+                "❌ Вы не зарегистрированы. Используйте /start для регистрации.",
+                reply_markup=get_cancel_keyboard()
             )
             return
         
-        # Обновляем активность
-        if user:
-            update_user_activity(user_id)
+        # Проверяем, не отметился ли уже сегодня
+        attendance_today = await admin_panel.db.get_attendance_today()
+        user_attended = any(a['name'] == user['name'] for a in attendance_today)
         
-        # Обработка различных callback_data
-        if data == "cancel":
-            await handle_cancel_callback(update, context)
-        elif data.startswith("location:"):
-            await handle_location_callback(update, context, data)
-        elif data.startswith("action:"):
-            await handle_action_callback(update, context, data)
-        elif data == "back_to_locations":
-            await handle_back_to_locations(update, context)
-        elif data == "back_to_main":
-            await handle_back_to_main(update, context)
-        elif data.startswith("admin:"):
-            from admin_v2 import handle_admin_callback_v2
-            await handle_admin_callback_v2(update, context, data)
-        elif data.startswith("confirm:"):
-            await handle_confirmation_callback(update, context, data)
-        elif data.startswith("double_confirm:"):
-            await handle_double_confirmation_callback(update, context, data)
-        else:
-            await query.edit_message_text(
-                "❌ Неизвестная команда.",
-                reply_markup=get_cancel_keyboard()
-            )
-            
-    except TelegramError as e:
-        logger.error(f"Ошибка в button_handler: {e}")
-        try:
-            await query.message.reply_text(
-                "⚠️ Произошла ошибка. Попробуйте еще раз.",
+        if user_attended:
+            await message.answer(
+                "ℹ️ Вы уже отметились сегодня!",
                 reply_markup=get_main_keyboard()
             )
-        except:
-            pass
+            return
+        
+        # Отмечаем присутствие
+        success = await admin_panel.db.mark_attendance(user_id, user.get('location'))
+        
+        if success:
+            await message.answer(
+                f"✅ *Отметка зарегистрирована!*\n\n"
+                f"👤 Боец: {user['name']}\n"
+                f"📍 Локация: {user.get('location', 'не указано')}\n"
+                f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+                f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            # Отправляем уведомление
+            await notification_system.send_attendance_notification(
+                user_id, user['name'], user.get('location')
+            )
+            
+            # Уведомляем админов
+            await notification_system.send_admin_notification(
+                "attendance_marked", f"Отметка: {user.get('location', 'не указано')}", user['name']
+            )
+        else:
+            await message.answer(
+                "❌ Ошибка отметки. Попробуйте еще раз.",
+                reply_markup=get_main_keyboard()
+            )
+            
+    except Exception as e:
+        logger.error(f"Ошибка отметки присутствия: {e}")
+        await message.answer(
+            "❌ Произошла ошибка. Попробуйте еще раз.",
+            reply_markup=get_main_keyboard()
+        )
 
-async def handle_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка отмены действия"""
-    context.user_data.clear()
-    
-    await update.callback_query.edit_message_text(
-        "❌ Действие отменено.",
-        reply_markup=get_main_keyboard()
-    )
-
-async def handle_location_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
+async def handle_location_selection(message: types.Message):
     """Обработка выбора локации"""
-    location = data.split(":", 1)[1]
+    user_id = message.from_user.id
     
-    # Проверяем, что локация существует
-    if location not in get_locations_list():
-        await update.callback_query.edit_message_text(
-            "❌ Неизвестная локация.",
-            reply_markup=get_cancel_keyboard()
-        )
-        return
-    
-    # Показываем клавиатуру с действиями
-    await update.callback_query.edit_message_text(
-        f"📍 <b>Локация: {location}</b>\n\n"
-        f"Выберите действие:",
-        parse_mode='HTML',
-        reply_markup=get_action_keyboard(location)
-    )
-
-async def handle_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
-    """Обработка выбора действия (прибыл/покинул)"""
-    parts = data.split(":", 2)
-    if len(parts) != 3:
-        await update.callback_query.edit_message_text(
-            "❌ Неверный формат команды.",
-            reply_markup=get_cancel_keyboard()
-        )
-        return
-    
-    action = parts[1]  # arrived или left
-    location = parts[2]
-    user_id = update.callback_query.from_user.id
-    
-    # Если выбрана локация "Другое" и действие "убыл", запрашиваем ручной ввод
-    if location == "📝 Другое" and action == "left":
-        context.user_data['waiting_for_custom_location'] = True
-        context.user_data['pending_action'] = action
-        
-        await update.callback_query.edit_message_text(
-            "📝 <b>Укажите место убытия:</b>\n\n"
-            "Введите название места, куда вы убываете:",
-            parse_mode='HTML',
-            reply_markup=get_cancel_keyboard()
-        )
-        return
-    
-    # Проверяем валидность действия
-    if action not in ['arrived', 'left']:
-        await update.callback_query.edit_message_text(
-            "❌ Неизвестное действие.",
-            reply_markup=get_cancel_keyboard()
-        )
-        return
-    
-    # Проверяем валидность локации
-    if location not in get_locations_list():
-        await update.callback_query.edit_message_text(
-            "❌ Неизвестная локация.",
-            reply_markup=get_cancel_keyboard()
-        )
-        return
-    
-    # Получаем текущее местоположение пользователя
-    current_location = get_user_current_location(user_id)
-    
-    # Проверяем логику действий
-    if action == 'arrived':
-        if current_location == location:
-            await update.callback_query.edit_message_text(
-                f"⚠️ Вы уже находитесь в локации <b>{location}</b>.",
-                parse_mode='HTML',
+    try:
+        # Проверяем, зарегистрирован ли пользователь
+        user = await admin_panel.db.get_user(user_id)
+        if not user:
+            await message.answer(
+                "❌ Вы не зарегистрированы. Используйте /start для регистрации.",
                 reply_markup=get_cancel_keyboard()
             )
             return
-    elif action == 'left':
-        if current_location != location:
-            await update.callback_query.edit_message_text(
-                f"⚠️ Вы не находитесь в локации <b>{location}</b>.\n"
-                f"Ваше текущее местоположение: <b>{current_location or 'не указано'}</b>",
-                parse_mode='HTML',
+        
+        await message.answer(
+            "📍 *Выберите вашу локацию:*",
+            reply_markup=get_location_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка выбора локации: {e}")
+        await message.answer(
+            "❌ Произошла ошибка. Попробуйте еще раз.",
+            reply_markup=get_main_keyboard()
+        )
+
+async def handle_my_status(message: types.Message):
+    """Обработка просмотра своего статуса"""
+    user_id = message.from_user.id
+    
+    try:
+        # Получаем информацию о пользователе
+        user = await admin_panel.db.get_user(user_id)
+        if not user:
+            await message.answer(
+                "❌ Вы не зарегистрированы. Используйте /start для регистрации.",
                 reply_markup=get_cancel_keyboard()
             )
             return
-    
-    # Записываем действие в базу
-    if add_location_log(user_id, location, action):
-        user = get_user(user_id)
-        action_text = "прибыл в" if action == 'arrived' else "покинул"
-        emoji = "✅" if action == 'arrived' else "❌"
         
-        current_time = get_current_time()
-        time_str = current_time.strftime("%H:%M")
+        # Проверяем отметку за сегодня
+        attendance_today = await admin_panel.db.get_attendance_today()
+        user_attended = any(a['name'] == user['name'] for a in attendance_today)
         
-        success_text = f"{emoji} <b>{user['full_name']}</b> {action_text} <b>{location}</b>\n"
-        success_text += f"🕒 Время: {time_str}\n\n"
+        status_text = (
+            f"📊 *Ваш статус:*\n\n"
+            f"👤 ФИО: {user['name']}\n"
+            f"📍 Локация: {user.get('location', 'не указано')}\n"
+            f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}\n"
+            f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n\n"
+        )
         
-        # Показываем текущий статус
-        new_location = get_user_current_location(user_id)
-        if new_location:
-            success_text += f"📍 Текущее местоположение: <b>{new_location}</b>"
+        if user_attended:
+            status_text += "✅ *Статус: Отмечен сегодня*"
         else:
-            success_text += f"📍 Местоположение не указано"
+            status_text += "❌ *Статус: Не отмечен сегодня*"
         
-        await update.callback_query.edit_message_text(
-            success_text,
-            parse_mode='HTML',
+        await message.answer(status_text, parse_mode=ParseMode.MARKDOWN)
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения статуса: {e}")
+        await message.answer(
+            "❌ Произошла ошибка. Попробуйте еще раз.",
             reply_markup=get_main_keyboard()
         )
-        
-        logger.info(f"Пользователь {user['full_name']} (ID: {user_id}) {action_text} {location}")
-        
-        # Отправляем уведомление админам о действии пользователя
-        try:
-            from notifications_v2 import notify_about_user_action_v2
-            await notify_about_user_action_v2(context.bot, user, action, location)
-        except Exception as e:
-            logger.error(f"Ошибка отправки уведомления о действии: {e}")
-    else:
-        await update.callback_query.edit_message_text(
-            "❌ Ошибка при записи действия. Попробуйте еще раз.",
-            reply_markup=get_cancel_keyboard()
-        )
 
-async def handle_back_to_locations(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Возврат к выбору локаций"""
-    await update.callback_query.edit_message_text(
-        "📍 <b>Выберите локацию:</b>",
-        parse_mode='HTML',
-        reply_markup=get_locations_keyboard()
-    )
-
-async def handle_back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Возврат к главному меню"""
-    user_id = update.callback_query.from_user.id
-    user = get_user(user_id)
-    
-    if user:
-        welcome_text = f"👋 <b>{user['full_name']}</b>\n\n"
-        current_location = get_user_current_location(user_id)
-        if current_location:
-            welcome_text += f"📍 Текущее местоположение: <b>{current_location}</b>\n\n"
+async def handle_callback_query(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработчик callback-запросов"""
+    try:
+        data = callback_query.data
+        user_id = callback_query.from_user.id
+        
+        # Обрабатываем админские callback
+        if data.startswith("admin:"):
+            await handle_admin_callback(callback_query, data)
+        # Обрабатываем пользовательские callback
+        elif data.startswith("user:"):
+            await handle_user_callback(callback_query, data, state)
         else:
-            welcome_text += "📍 Местоположение не указано\n\n"
-        welcome_text += "Выберите действие:"
-    else:
-        welcome_text = "👋 Добро пожаловать!\n\nВыберите действие:"
-    
-    await update.callback_query.edit_message_text(
-        welcome_text,
-        parse_mode='HTML',
-        reply_markup=get_main_keyboard()
-    )
+            await callback_query.answer("❌ Неизвестный callback")
+            
+    except Exception as e:
+        logger.error(f"Ошибка обработки callback: {e}")
+        await callback_query.answer("❌ Произошла ошибка")
 
-async def handle_confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
-    """Обработка подтверждения действия"""
-    action = data.split(":", 1)[1]
-    await handle_admin_callback(update, context, f"execute:{action}")
-
-async def handle_double_confirmation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str):
-    """Обработка двойного подтверждения действия"""
-    action = data.split(":", 1)[1]
-    await handle_admin_callback(update, context, f"final_execute:{action}")
-
-async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка неизвестных сообщений"""
-    await update.message.reply_text(
-        "❓ Неизвестная команда.\n"
-        "Используйте кнопки меню или /help для справки.",
-        reply_markup=get_main_keyboard()
-    )
-
-async def handle_custom_location_input(update: Update, context: ContextTypes.DEFAULT_TYPE, custom_location: str):
-    """Обработка ввода кастомной локации для убытия"""
-    user_id = update.effective_user.id
-    action = context.user_data.get('pending_action')
-    
-    # Очищаем состояние
-    context.user_data.clear()
-    
-    # Проверяем, что действие - убытие
-    if action != 'left':
-        await update.message.reply_text(
-            "❌ Ошибка: неверное действие.",
-            reply_markup=get_main_keyboard()
-        )
-        return
-    
-    # Ограничиваем длину названия локации
-    if len(custom_location) > 50:
-        await update.message.reply_text(
-            "❌ Слишком длинное название места. Максимум 50 символов.",
-            reply_markup=get_main_keyboard()
-        )
-        return
-    
-    # Очищаем от лишних символов
-    custom_location = custom_location.strip()
-    if not custom_location:
-        await update.message.reply_text(
-            "❌ Название места не может быть пустым.",
-            reply_markup=get_main_keyboard()
-        )
-        return
-    
-    # Записываем действие в базу
-    if add_location_log(user_id, custom_location, action):
-        user = get_user(user_id)
-        current_time = get_current_time()
-        time_str = current_time.strftime("%H:%M")
+async def handle_admin_callback(callback_query: types.CallbackQuery, data: str):
+    """Обработка админских callback-запросов"""
+    try:
+        user_id = callback_query.from_user.id
         
-        success_text = f"🔴 <b>{user['full_name']}</b> убыл в <b>{custom_location}</b>\n"
-        success_text += f"🕒 Время: {time_str}\n\n"
-        success_text += f"📍 Статус: <b>Вне расположения</b>"
+        # Парсим callback data
+        parts = data.split(":")
+        if len(parts) >= 3:
+            action = parts[1]
+            subaction = parts[2]
+        else:
+            action = parts[1] if len(parts) > 1 else ""
+            subaction = ""
         
-        await update.message.reply_text(
-            success_text,
-            parse_mode='HTML',
-            reply_markup=get_main_keyboard()
+        # Обрабатываем через админ-панель
+        message, keyboard = await admin_panel.handle_callback(data, user_id)
+        
+        await callback_query.message.edit_text(
+            message,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.MARKDOWN
         )
         
-        logger.info(f"Пользователь {user['full_name']} (ID: {user_id}) убыл в {custom_location}")
+        await callback_query.answer()
         
-        # Отправляем уведомление админам о действии пользователя
-        try:
-            from notifications_v2 import notify_about_user_action_v2
-            await notify_about_user_action_v2(context.bot, user, action, custom_location)
-        except Exception as e:
-            logger.error(f"Ошибка отправки уведомления о действии: {e}")
-    else:
-        await update.message.reply_text(
-            "❌ Ошибка при записи действия. Попробуйте еще раз.",
-            reply_markup=get_main_keyboard()
-        )
+    except Exception as e:
+        logger.error(f"Ошибка обработки админского callback: {e}")
+        await callback_query.answer("❌ Произошла ошибка")
+
+async def handle_user_callback(callback_query: types.CallbackQuery, data: str, state: FSMContext):
+    """Обработка пользовательских callback-запросов"""
+    try:
+        user_id = callback_query.from_user.id
+        
+        # Парсим callback data
+        parts = data.split(":")
+        action = parts[1] if len(parts) > 1 else ""
+        
+        if action == "back_to_main":
+            # Возврат в главное меню
+            await callback_query.message.edit_text(
+                "👋 *Главное меню*\n\nВыберите действие:",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+        elif action.startswith("location_"):
+            # Обработка выбора локации
+            await handle_location_callback(callback_query, action, state)
+            
+        elif action == "cancel":
+            # Отмена действия
+            await callback_query.message.edit_text(
+                "❌ Действие отменено",
+                reply_markup=get_main_keyboard()
+            )
+            
+        else:
+            await callback_query.answer("❌ Неизвестное действие")
+            
+    except Exception as e:
+        logger.error(f"Ошибка обработки пользовательского callback: {e}")
+        await callback_query.answer("❌ Произошла ошибка")
+
+async def handle_location_callback(callback_query: types.CallbackQuery, action: str, state: FSMContext):
+    """Обработка выбора локации"""
+    try:
+        user_id = callback_query.from_user.id
+        
+        # Проверяем, зарегистрирован ли пользователь
+        user = await admin_panel.db.get_user(user_id)
+        if not user:
+            await callback_query.answer("❌ Вы не зарегистрированы")
+            return
+        
+        # Определяем локацию
+        location_map = {
+            "location_office": "🏢 Офис",
+            "location_home": "🏠 Дом",
+            "location_hospital": "🏥 Больница",
+            "location_traveling": "🚗 В пути",
+            "location_vacation": "🏖️ Отпуск",
+            "location_sick": "🏥 Больничный"
+        }
+        
+        if action == "location_custom":
+            # Запрашиваем кастомную локацию
+            await callback_query.message.edit_text(
+                "✏️ *Введите вашу локацию:*\n\n"
+                "Напишите название места, где вы находитесь:",
+                reply_markup=get_cancel_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            await UserStates.waiting_for_custom_location.set()
+            await callback_query.answer()
+            return
+        
+        location = location_map.get(action, "Неизвестная локация")
+        
+        # Отмечаем присутствие
+        success = await admin_panel.db.mark_attendance(user_id, location)
+        
+        if success:
+            await callback_query.message.edit_text(
+                f"✅ *Отметка зарегистрирована!*\n\n"
+                f"👤 Боец: {user['name']}\n"
+                f"📍 Локация: {location}\n"
+                f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+                f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            # Отправляем уведомление
+            await notification_system.send_attendance_notification(user_id, user['name'], location)
+            
+            # Уведомляем админов
+            await notification_system.send_admin_notification(
+                "attendance_marked", f"Отметка: {location}", user['name']
+            )
+            
+            await callback_query.answer("✅ Отметка зарегистрирована!")
+        else:
+            await callback_query.answer("❌ Ошибка отметки")
+            
+    except Exception as e:
+        logger.error(f"Ошибка обработки локации: {e}")
+        await callback_query.answer("❌ Произошла ошибка")
