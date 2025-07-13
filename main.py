@@ -1,51 +1,98 @@
-import os
-import logging
-from dotenv import load_dotenv
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
-from database import init_db
-from keyboards import main_menu_keyboard
-from handlers import start, button, text_handler, admin_command
-from notifications import setup_notifications
-from admin import handle_admin_callback
+#!/usr/bin/env python3
+"""
+Telegram Bot для отслеживания прибытия/убытия персонала
+Главный файл для запуска бота
+"""
 
-# Загрузка переменных окружения
+import logging
+import asyncio
+import os
+from dotenv import load_dotenv
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler
+from telegram import Update
+from telegram.ext import ContextTypes
+
+# Импортируем обработчики
+from handlers import (
+    start_command, register_user, location_handler, 
+    admin_command, help_command, status_command,
+    button_handler, cancel_handler
+)
+from database import init_db, close_db
+from notifications import start_notification_scheduler
+from utils import is_admin
+
+# Загружаем переменные окружения
 load_dotenv()
 
-# Настройка логов
+# Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
-    filename='bot.log'
+    handlers=[
+        logging.FileHandler('logs/bot.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
 )
+
 logger = logging.getLogger(__name__)
 
-def main():
-    # Инициализация базы данных
+# Получаем токен из переменных окружения
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN не найден в переменных окружения")
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ошибок"""
+    logger.error(f"Update {update} caused error {context.error}")
+    
+    if update.effective_message:
+        await update.effective_message.reply_text(
+            "⚠️ Произошла ошибка при обработке запроса. Попробуйте еще раз или обратитесь к администратору.",
+            parse_mode='HTML'
+        )
+
+async def main():
+    """Основная функция для запуска бота"""
+    # Инициализируем базу данных
     init_db()
-
-    # Запуск бота
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not TOKEN:
-        logger.error("Не установлен TELEGRAM_BOT_TOKEN!")
-        return
-
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    # Регистрация обработчиков
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("admin", admin_command))
-    dp.add_handler(CallbackQueryHandler(button))
-    dp.add_handler(CallbackQueryHandler(handle_admin_callback, pattern='admin_'))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, text_handler))
-
-    # Настройка уведомлений
-    setup_notifications(updater.job_queue)
-
-    # Запуск бота
-    updater.start_polling()
-    logger.info("Бот успешно запущен!")
-    updater.idle()
+    
+    # Создаем приложение
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    # Добавляем обработчики команд
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("register", register_user))
+    app.add_handler(CommandHandler("admin", admin_command))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("cancel", cancel_handler))
+    
+    # Добавляем обработчики callback-запросов
+    app.add_handler(CallbackQueryHandler(button_handler))
+    
+    # Добавляем обработчик текстовых сообщений
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, location_handler))
+    
+    # Добавляем обработчик ошибок
+    app.add_error_handler(error_handler)
+    
+    # Запускаем планировщик уведомлений
+    start_notification_scheduler(app)
+    
+    logger.info("🚀 Бот запущен")
+    print("🚀 Бот запущен и готов к работе!")
+    
+    # Запускаем бота
+    await app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Бот остановлен пользователем")
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
+    finally:
+        close_db()
+        logger.info("Бот завершил работу")
