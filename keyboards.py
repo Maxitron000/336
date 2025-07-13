@@ -51,25 +51,127 @@ def get_action_keyboard(location: str):
     return InlineKeyboardMarkup(keyboard)
 
 def get_admin_keyboard():
-    """Главная админская клавиатура"""
+    """Главная админская клавиатура - Уровень 1: 🏠 Главное меню"""
     keyboard = [
         [
-            InlineKeyboardButton("👥 Пользователи", callback_data="admin:users"),
-            InlineKeyboardButton("📊 Статистика", callback_data="admin:stats")
+            InlineKeyboardButton("📊 Быстрая сводка", callback_data="admin:dashboard"),
+            InlineKeyboardButton("👥 Управление л/с", callback_data="admin:personnel")
         ],
         [
-            InlineKeyboardButton("📋 Логи", callback_data="admin:logs"),
-            InlineKeyboardButton("� Локации", callback_data="admin:locations")
-        ],
-        [
-            InlineKeyboardButton("📁 Экспорт", callback_data="admin:export"),
-            InlineKeyboardButton("🔧 Управление", callback_data="admin:manage")
-        ],
-        [
-            InlineKeyboardButton("🧹 Очистка", callback_data="admin:cleanup"),
+            InlineKeyboardButton("📖 Журнал событий", callback_data="admin:journal"),
             InlineKeyboardButton("⚙️ Настройки", callback_data="admin:settings")
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_personnel_keyboard():
+    """Клавиатура управления личным составом - Уровень 2: Меню «👥 Управление л/с»"""
+    keyboard = [
+        [
+            InlineKeyboardButton("✏️ Сменить ФИО бойца", callback_data="admin:personnel:change_name"),
+            InlineKeyboardButton("➕ Добавить нового бойца", callback_data="admin:personnel:add_user")
+        ],
+        [
+            InlineKeyboardButton("❌ Удалить бойца", callback_data="admin:personnel:delete_user"),
+            InlineKeyboardButton("👑 Управление админами", callback_data="admin:personnel:manage_admins")
+        ],
+        [
+            InlineKeyboardButton("� Список всех бойцов", callback_data="admin:personnel:list_all"),
+            InlineKeyboardButton("🔍 Поиск бойца", callback_data="admin:personnel:search")
+        ],
+        [InlineKeyboardButton("🔙 Назад", callback_data="admin:main")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_journal_keyboard():
+    """Клавиатура журнала событий - Уровень 2: Меню «📖 Журнал событий»"""
+    keyboard = [
+        [
+            InlineKeyboardButton("📥 Экспорт журнала", callback_data="admin:journal:export"),
+            InlineKeyboardButton("📋 Все события", callback_data="admin:journal:all_events")
+        ],
+        [
+            InlineKeyboardButton("� Поиск по имени", callback_data="admin:journal:search_name"),
+            InlineKeyboardButton("📅 Поиск по дате", callback_data="admin:journal:search_date")
+        ],
+        [
+            InlineKeyboardButton("👤 Мои действия", callback_data="admin:journal:my_actions"),
+            InlineKeyboardButton("🔧 Админские логи", callback_data="admin:journal:admin_logs")
+        ],
+        [InlineKeyboardButton("🔙 Назад", callback_data="admin:main")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_settings_keyboard():
+    """Клавиатура настроек - Уровень 2: Меню «⚙️ Настройки»"""
+    keyboard = [
+        [
+            InlineKeyboardButton("� Уведомления", callback_data="admin:settings:notifications"),
+            InlineKeyboardButton("� Управление админами", callback_data="admin:settings:admins")
+        ],
+        [
+            InlineKeyboardButton("⚠️ Опасная зона", callback_data="admin:settings:danger_zone"),
+            InlineKeyboardButton("🔧 Системные настройки", callback_data="admin:settings:system")
+        ],
+        [
+            InlineKeyboardButton("📊 Статистика", callback_data="admin:settings:stats"),
+            InlineKeyboardButton("🛠️ Обслуживание", callback_data="admin:settings:maintenance")
+        ],
+        [InlineKeyboardButton("🔙 Назад", callback_data="admin:main")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_danger_zone_keyboard():
+    """Клавиатура опасной зоны - Уровень 3: Меню «⚠️ Опасная зона»"""
+    keyboard = [
+        [
+            InlineKeyboardButton("🚨 Отметить всех прибывшими", callback_data="admin:danger:mark_all_arrived"),
+            InlineKeyboardButton("🗑️ Очистить все данные", callback_data="admin:danger:clear_all_data")
+        ],
+        [
+            InlineKeyboardButton("🔄 Сбросить систему", callback_data="admin:danger:reset_system"),
+            InlineKeyboardButton("💀 Удалить всех пользователей", callback_data="admin:danger:delete_all_users")
+        ],
+        [InlineKeyboardButton("🔙 Назад", callback_data="admin:settings")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_notification_settings_keyboard():
+    """Клавиатура настроек уведомлений"""
+    keyboard = [
+        [
+            InlineKeyboardButton("🔔 Включить уведомления", callback_data="admin:notifications:enable"),
+            InlineKeyboardButton("🔕 Отключить уведомления", callback_data="admin:notifications:disable")
+        ],
+        [
+            InlineKeyboardButton("⏰ Настройка времени", callback_data="admin:notifications:time"),
+            InlineKeyboardButton("👥 Получатели", callback_data="admin:notifications:recipients")
+        ],
+        [
+            InlineKeyboardButton("🔇 Режим тишины", callback_data="admin:notifications:silence"),
+            InlineKeyboardButton("📝 Типы событий", callback_data="admin:notifications:event_types")
+        ],
+        [InlineKeyboardButton("🔙 Назад", callback_data="admin:settings")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_export_journal_keyboard():
+    """Клавиатура экспорта журнала"""
+    keyboard = [
+        [
+            InlineKeyboardButton("📄 CSV формат", callback_data="admin:export:csv"),
+            InlineKeyboardButton("📊 Excel формат", callback_data="admin:export:excel")
+        ],
+        [
+            InlineKeyboardButton("📅 За период", callback_data="admin:export:period"),
+            InlineKeyboardButton("👤 По пользователю", callback_data="admin:export:user")
+        ],
+        [
+            InlineKeyboardButton("📋 Все форматы", callback_data="admin:export:all"),
+            InlineKeyboardButton("🔍 Фильтрованный экспорт", callback_data="admin:export:filtered")
+        ],
+        [InlineKeyboardButton("🔙 Назад", callback_data="admin:journal")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -288,36 +390,6 @@ def get_back_keyboard(callback_data: str):
     """Простая клавиатура с кнопкой назад"""
     keyboard = [
         [InlineKeyboardButton("🔙 Назад", callback_data=callback_data)]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def get_settings_keyboard():
-    """Клавиатура для настроек"""
-    keyboard = [
-        [
-            InlineKeyboardButton("⏰ Уведомления", callback_data="admin:settings:notifications"),
-            InlineKeyboardButton("🌍 Часовой пояс", callback_data="admin:settings:timezone")
-        ],
-        [
-            InlineKeyboardButton("🔧 Система", callback_data="admin:settings:system"),
-            InlineKeyboardButton("📊 Отчеты", callback_data="admin:settings:reports")
-        ],
-        [InlineKeyboardButton("🔙 Назад", callback_data="admin:main")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-def get_notification_settings_keyboard():
-    """Клавиатура для настроек уведомлений"""
-    keyboard = [
-        [
-            InlineKeyboardButton("🔔 Включить", callback_data="admin:settings:notifications:on"),
-            InlineKeyboardButton("🔕 Выключить", callback_data="admin:settings:notifications:off")
-        ],
-        [
-            InlineKeyboardButton("⏰ Время", callback_data="admin:settings:notifications:time"),
-            InlineKeyboardButton("🔄 Интервал", callback_data="admin:settings:notifications:interval")
-        ],
-        [InlineKeyboardButton("🔙 Назад", callback_data="admin:settings")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
