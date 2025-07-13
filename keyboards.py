@@ -235,6 +235,18 @@ def get_maintenance_keyboard():
             InlineKeyboardButton("🧹 Очистка данных", callback_data=admin_cb.new("maintenance", "cleanup")),
             InlineKeyboardButton("📋 Лог ТО", callback_data=admin_cb.new("maintenance", "maintenance_log"))
         ],
+        [
+            InlineKeyboardButton("🔄 Принудительный перезапуск", callback_data=admin_cb.new("maintenance", "force_restart")),
+            InlineKeyboardButton("🚨 Экстренный перезапуск", callback_data=admin_cb.new("maintenance", "emergency_restart"))
+        ],
+        [
+            InlineKeyboardButton("📊 Статистика бэкапов", callback_data=admin_cb.new("maintenance", "backup_stats")),
+            InlineKeyboardButton("📈 Статистика перезапусков", callback_data=admin_cb.new("maintenance", "restart_stats"))
+        ],
+        [
+            InlineKeyboardButton("📋 Список бэкапов", callback_data=admin_cb.new("maintenance", "list_backups")),
+            InlineKeyboardButton("🐍 PythonAnywhere", callback_data=admin_cb.new("maintenance", "pythonanywhere_info"))
+        ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("back", ""))]
     ]
     return InlineKeyboardMarkup(keyboard)
