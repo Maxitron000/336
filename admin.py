@@ -14,7 +14,7 @@ from export import export_to_csv, export_to_excel, export_to_pdf
 import sqlite3
 import os
 
-DB_NAME = "personnel.db"
+DB_NAME = "data/personnel.db"
 
 def handle_admin_callback(update: Update, context: CallbackContext):
     query = update.callback_query

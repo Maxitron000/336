@@ -4,8 +4,10 @@
 TOKEN = "8040939701:AAFfULuaLMrnrQggJllGkOPWcTl24KUm_q8"
 
 # Пути к файлам
-ADMINS_JSON = "admins.json"
-NOTIFICATIONS_JSON = "notifications.json"
+ADMINS_JSON = "data/admins.json"
+NOTIFICATIONS_JSON = "config/notifications.json"
+LOCATIONS_JSON = "data/locations.json"
+DB_NAME = "data/personnel.db"
 
 # Права админов (код, название, описание)
 ADMIN_RIGHTS = [

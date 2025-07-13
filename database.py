@@ -3,9 +3,12 @@ import os
 import logging
 from utils import get_current_time
 
-DB_NAME = "personnel.db"
+DB_NAME = "data/personnel.db"
 
 def init_db():
+    # Создаем папку data, если её нет
+    os.makedirs('data', exist_ok=True)
+    
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 

@@ -27,22 +27,33 @@ def validate_full_name(name):
     return re.match(pattern, name) is not None
 
 def load_locations():
+    """Загружает локации из JSON файла"""
     try:
         with open('data/locations.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
-        return [
-            {"id": 1, "emoji": "🏥", "name": "Поликлиника"},
-            {"id": 2, "emoji": "⚓", "name": "ОБРМП"},
-            {"id": 3, "emoji": "🌆", "name": "Калининград"},
-            {"id": 4, "emoji": "🛒", "name": "Магазин"},
-            {"id": 5, "emoji": "🍲", "name": "Столовая"},
-            {"id": 6, "emoji": "🏨", "name": "Госпиталь"},
-            {"id": 7, "emoji": "⚙️", "name": "Рабочка"},
-            {"id": 8, "emoji": "🩺", "name": "ВВК"},
-            {"id": 9, "emoji": "🏛️", "name": "МФЦ"},
-            {"id": 10, "emoji": "🚓", "name": "Патруль"}
+        # Создаем файл с локациями по умолчанию, если его нет
+        default_locations = [
+            {"id": 1, "emoji": "🏥", "name": "Поликлиника", "description": "Медицинское учреждение"},
+            {"id": 2, "emoji": "⚓", "name": "ОБРМП", "description": "Отдельная бригада морской пехоты"},
+            {"id": 3, "emoji": "🌆", "name": "Калининград", "description": "Город"},
+            {"id": 4, "emoji": "🛒", "name": "Магазин", "description": "Торговые точки"},
+            {"id": 5, "emoji": "🍲", "name": "Столовая", "description": "Место питания"},
+            {"id": 6, "emoji": "🏨", "name": "Госпиталь", "description": "Военный госпиталь"},
+            {"id": 7, "emoji": "⚙️", "name": "Рабочка", "description": "Рабочее место, мастерские"},
+            {"id": 8, "emoji": "🩺", "name": "ВВК", "description": "Военно-врачебная комиссия"},
+            {"id": 9, "emoji": "🏛️", "name": "МФЦ", "description": "Многофункциональный центр"},
+            {"id": 10, "emoji": "🚓", "name": "Патруль", "description": "Патрульная служба"}
         ]
+        
+        # Создаем папку data, если её нет
+        os.makedirs('data', exist_ok=True)
+        
+        # Сохраняем локации в файл
+        with open('data/locations.json', 'w', encoding='utf-8') as f:
+            json.dump(default_locations, f, ensure_ascii=False, indent=2)
+        
+        return default_locations
 
 def get_current_time():
     return datetime.now(KALININGRAD_TZ)
