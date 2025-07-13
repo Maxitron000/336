@@ -3,6 +3,7 @@
 """
 
 import logging
+from datetime import datetime
 from aiogram import Dispatcher, types
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
@@ -42,7 +43,7 @@ def register_handlers(dp: Dispatcher, admin_panel: AdminPanel, notification_syst
     dp.register_message_handler(status_command, commands=['status'])
     dp.register_message_handler(admin_command, commands=['admin'])
     
-    # Обработчики текстовых сообщений
+    # Обработчики текстовых сообщений (только для регистрации и кастомных локаций)
     dp.register_message_handler(handle_text_message, content_types=['text'])
     
     # Обработчики callback-запросов
@@ -148,7 +149,7 @@ async def admin_command(message: types.Message):
         await message.answer("❌ У вас нет доступа к админ-панели")
 
 async def handle_text_message(message: types.Message, state: FSMContext):
-    """Обработчик текстовых сообщений"""
+    """Обработчик текстовых сообщений (только для регистрации и кастомных локаций)"""
     user_id = message.from_user.id
     text = message.text
     
@@ -160,8 +161,9 @@ async def handle_text_message(message: types.Message, state: FSMContext):
     elif current_state == UserStates.waiting_for_custom_location.state:
         await handle_custom_location_input(message, state, text)
     else:
-        # Обрабатываем обычные команды
-        await handle_regular_commands(message, text)
+        # Если не в состоянии ожидания ввода, игнорируем текстовые сообщения
+        # Все действия теперь выполняются через инлайн-кнопки
+        pass
 
 async def handle_name_input(message: types.Message, state: FSMContext, name: str):
     """Обработка ввода имени при регистрации"""
@@ -244,151 +246,9 @@ async def handle_custom_location_input(message: types.Message, state: FSMContext
     
     await state.finish()
 
-async def handle_regular_commands(message: types.Message, text: str):
-    """Обработка обычных команд"""
-    user_id = message.from_user.id
-    
-    if text == "✅ Отметиться":
-        await handle_attendance(message)
-    elif text == "📍 Указать локацию":
-        await handle_location_selection(message)
-    elif text == "📊 Мой статус":
-        await handle_my_status(message)
-    elif text == "📖 Помощь":
-        await help_command(message)
-    else:
-        await message.answer(
-            "❓ Неизвестная команда. Используйте кнопки меню или /help для справки.",
-            reply_markup=get_main_keyboard()
-        )
 
-async def handle_attendance(message: types.Message):
-    """Обработка отметки присутствия"""
-    user_id = message.from_user.id
-    
-    try:
-        # Проверяем, зарегистрирован ли пользователь
-        user = await admin_panel.db.get_user(user_id)
-        if not user:
-            await message.answer(
-                "❌ Вы не зарегистрированы. Используйте /start для регистрации.",
-                reply_markup=get_cancel_keyboard()
-            )
-            return
-        
-        # Проверяем, не отметился ли уже сегодня
-        attendance_today = await admin_panel.db.get_attendance_today()
-        user_attended = any(a['name'] == user['name'] for a in attendance_today)
-        
-        if user_attended:
-            await message.answer(
-                "ℹ️ Вы уже отметились сегодня!",
-                reply_markup=get_main_keyboard()
-            )
-            return
-        
-        # Отмечаем присутствие
-        success = await admin_panel.db.mark_attendance(user_id, user.get('location'))
-        
-        if success:
-            await message.answer(
-                f"✅ *Отметка зарегистрирована!*\n\n"
-                f"👤 Боец: {user['name']}\n"
-                f"📍 Локация: {user.get('location', 'не указано')}\n"
-                f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
-                f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}",
-                reply_markup=get_main_keyboard(),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            
-            # Отправляем уведомление
-            await notification_system.send_attendance_notification(
-                user_id, user['name'], user.get('location')
-            )
-            
-            # Уведомляем админов
-            await notification_system.send_admin_notification(
-                "attendance_marked", f"Отметка: {user.get('location', 'не указано')}", user['name']
-            )
-        else:
-            await message.answer(
-                "❌ Ошибка отметки. Попробуйте еще раз.",
-                reply_markup=get_main_keyboard()
-            )
-            
-    except Exception as e:
-        logger.error(f"Ошибка отметки присутствия: {e}")
-        await message.answer(
-            "❌ Произошла ошибка. Попробуйте еще раз.",
-            reply_markup=get_main_keyboard()
-        )
 
-async def handle_location_selection(message: types.Message):
-    """Обработка выбора локации"""
-    user_id = message.from_user.id
-    
-    try:
-        # Проверяем, зарегистрирован ли пользователь
-        user = await admin_panel.db.get_user(user_id)
-        if not user:
-            await message.answer(
-                "❌ Вы не зарегистрированы. Используйте /start для регистрации.",
-                reply_markup=get_cancel_keyboard()
-            )
-            return
-        
-        await message.answer(
-            "📍 *Выберите вашу локацию:*",
-            reply_markup=get_location_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-        
-    except Exception as e:
-        logger.error(f"Ошибка выбора локации: {e}")
-        await message.answer(
-            "❌ Произошла ошибка. Попробуйте еще раз.",
-            reply_markup=get_main_keyboard()
-        )
 
-async def handle_my_status(message: types.Message):
-    """Обработка просмотра своего статуса"""
-    user_id = message.from_user.id
-    
-    try:
-        # Получаем информацию о пользователе
-        user = await admin_panel.db.get_user(user_id)
-        if not user:
-            await message.answer(
-                "❌ Вы не зарегистрированы. Используйте /start для регистрации.",
-                reply_markup=get_cancel_keyboard()
-            )
-            return
-        
-        # Проверяем отметку за сегодня
-        attendance_today = await admin_panel.db.get_attendance_today()
-        user_attended = any(a['name'] == user['name'] for a in attendance_today)
-        
-        status_text = (
-            f"📊 *Ваш статус:*\n\n"
-            f"👤 ФИО: {user['name']}\n"
-            f"📍 Локация: {user.get('location', 'не указано')}\n"
-            f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}\n"
-            f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n\n"
-        )
-        
-        if user_attended:
-            status_text += "✅ *Статус: Отмечен сегодня*"
-        else:
-            status_text += "❌ *Статус: Не отмечен сегодня*"
-        
-        await message.answer(status_text, parse_mode=ParseMode.MARKDOWN)
-        
-    except Exception as e:
-        logger.error(f"Ошибка получения статуса: {e}")
-        await message.answer(
-            "❌ Произошла ошибка. Попробуйте еще раз.",
-            reply_markup=get_main_keyboard()
-        )
 
 async def handle_callback_query(callback_query: types.CallbackQuery, state: FSMContext):
     """Обработчик callback-запросов"""
@@ -451,6 +311,44 @@ async def handle_user_callback(callback_query: types.CallbackQuery, data: str, s
             # Возврат в главное меню
             await callback_query.message.edit_text(
                 "👋 *Главное меню*\n\nВыберите действие:",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+        elif action == "mark_attendance":
+            # Отметка присутствия
+            await handle_attendance_callback(callback_query)
+            
+        elif action == "set_location":
+            # Указание локации
+            await callback_query.message.edit_text(
+                "📍 *Выберите вашу локацию:*",
+                reply_markup=get_location_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+        elif action == "my_status":
+            # Просмотр статуса
+            await handle_my_status_callback(callback_query)
+            
+        elif action == "help":
+            # Справка
+            help_text = (
+                "📖 *Справка по командам:*\n\n"
+                "🔹 `/start` - Главное меню\n"
+                "🔹 `/help` - Эта справка\n"
+                "🔹 `/status` - Статус системы\n\n"
+                "💡 *Для админов:*\n"
+                "🔹 `/admin` - Админ-панель\n"
+                "🔹 `/export` - Экспорт данных\n"
+                "🔹 `/backup` - Резервная копия\n\n"
+                "📱 *Основные действия:*\n"
+                "🔹 Нажмите '✅ Отметиться' для отметки присутствия\n"
+                "🔹 Нажмите '📍 Указать локацию' для смены местоположения\n"
+                "🔹 Нажмите '📊 Мой статус' для просмотра вашего статуса"
+            )
+            await callback_query.message.edit_text(
+                help_text,
                 reply_markup=get_main_keyboard(),
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -536,4 +434,95 @@ async def handle_location_callback(callback_query: types.CallbackQuery, action: 
             
     except Exception as e:
         logger.error(f"Ошибка обработки локации: {e}")
+        await callback_query.answer("❌ Произошла ошибка")
+
+async def handle_attendance_callback(callback_query: types.CallbackQuery):
+    """Обработка отметки присутствия через callback"""
+    user_id = callback_query.from_user.id
+    
+    try:
+        # Проверяем, зарегистрирован ли пользователь
+        user = await admin_panel.db.get_user(user_id)
+        if not user:
+            await callback_query.answer("❌ Вы не зарегистрированы")
+            return
+        
+        # Проверяем, не отметился ли уже сегодня
+        attendance_today = await admin_panel.db.get_attendance_today()
+        user_attended = any(a['name'] == user['name'] for a in attendance_today)
+        
+        if user_attended:
+            await callback_query.answer("ℹ️ Вы уже отметились сегодня!")
+            return
+        
+        # Отмечаем присутствие
+        success = await admin_panel.db.mark_attendance(user_id, user.get('location'))
+        
+        if success:
+            await callback_query.message.edit_text(
+                f"✅ *Отметка зарегистрирована!*\n\n"
+                f"👤 Боец: {user['name']}\n"
+                f"📍 Локация: {user.get('location', 'не указано')}\n"
+                f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+                f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            # Отправляем уведомление
+            await notification_system.send_attendance_notification(
+                user_id, user['name'], user.get('location')
+            )
+            
+            # Уведомляем админов
+            await notification_system.send_admin_notification(
+                "attendance_marked", f"Отметка: {user.get('location', 'не указано')}", user['name']
+            )
+            
+            await callback_query.answer("✅ Отметка зарегистрирована!")
+        else:
+            await callback_query.answer("❌ Ошибка отметки")
+            
+    except Exception as e:
+        logger.error(f"Ошибка отметки присутствия: {e}")
+        await callback_query.answer("❌ Произошла ошибка")
+
+async def handle_my_status_callback(callback_query: types.CallbackQuery):
+    """Обработка просмотра статуса через callback"""
+    user_id = callback_query.from_user.id
+    
+    try:
+        # Получаем информацию о пользователе
+        user = await admin_panel.db.get_user(user_id)
+        if not user:
+            await callback_query.answer("❌ Вы не зарегистрированы")
+            return
+        
+        # Проверяем отметку за сегодня
+        attendance_today = await admin_panel.db.get_attendance_today()
+        user_attended = any(a['name'] == user['name'] for a in attendance_today)
+        
+        status_text = (
+            f"📊 *Ваш статус:*\n\n"
+            f"👤 ФИО: {user['name']}\n"
+            f"📍 Локация: {user.get('location', 'не указано')}\n"
+            f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}\n"
+            f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n\n"
+        )
+        
+        if user_attended:
+            status_text += "✅ *Статус: Отмечен сегодня*"
+        else:
+            status_text += "❌ *Статус: Не отмечен сегодня*"
+        
+        await callback_query.message.edit_text(
+            status_text,
+            reply_markup=get_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        await callback_query.answer("📊 Статус обновлен")
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения статуса: {e}")
         await callback_query.answer("❌ Произошла ошибка")
