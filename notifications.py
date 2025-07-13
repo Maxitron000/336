@@ -6,6 +6,7 @@ import asyncio
 import logging
 import random
 import json
+import os
 from datetime import datetime, date, time
 from typing import List, Dict, Optional
 from aiogram import Bot
@@ -22,13 +23,52 @@ class NotificationSystem:
         self.bot = bot
         self.db = db
         self.config = Config()
-        self.notification_texts = self.config.get_notification_texts()
+        self.notification_templates = self._load_notification_templates()
         
         # Настройки уведомлений
         self.enabled = True
         self.daily_summary_enabled = True
         self.reminders_enabled = True
         self.silent_mode = False
+    
+    def _load_notification_templates(self) -> Dict:
+        """Загрузка шаблонов уведомлений из JSON файла"""
+        try:
+            template_path = os.path.join('config', 'notifications.json')
+            if os.path.exists(template_path):
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                logger.warning("Файл notifications.json не найден, используем встроенные шаблоны")
+                return self._get_default_templates()
+        except Exception as e:
+            logger.error(f"Ошибка загрузки шаблонов уведомлений: {e}")
+            return self._get_default_templates()
+    
+    def _get_default_templates(self) -> Dict:
+        """Встроенные шаблоны уведомлений"""
+        return {
+            "reminders": ["🔔 Напоминание: не забудьте отметиться!"],
+            "daily_summary": ["📊 Ежедневная сводка за {date}"],
+            "arrival": ["✅ {name} прибыл в {location}"],
+            "departure": ["🚪 {name} убыл в {location}"],
+            "user_added": ["👤 Добавлен новый пользователь: {name}"],
+            "user_deleted": ["🗑️ Удален пользователь: {name}"],
+            "system_alert": ["⚠️ Системное уведомление: {message}"]
+        }
+    
+    def get_random_template(self, template_type: str, **kwargs) -> str:
+        """Получение случайного шаблона с подстановкой параметров"""
+        try:
+            templates = self.notification_templates.get(template_type, [])
+            if not templates:
+                return f"Уведомление типа {template_type}"
+            
+            template = random.choice(templates)
+            return template.format(**kwargs)
+        except Exception as e:
+            logger.error(f"Ошибка получения шаблона {template_type}: {e}")
+            return f"Уведомление: {template_type}"
     
     async def send_notification(self, user_id: int, message: str, disable_notification: bool = False):
         """Отправка уведомления пользователю"""
@@ -54,6 +94,34 @@ class NotificationSystem:
             logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
             return False
     
+    async def send_notification_to_commanders(self, message: str, notification_type: str = None):
+        """Отправка уведомления только командирам с включенными уведомлениями"""
+        try:
+            # Получаем командиров с включенными уведомлениями
+            commanders = await self.db.get_users_with_notifications()
+            
+            if not commanders:
+                logger.info("Нет командиров с включенными уведомлениями")
+                return 0
+            
+            sent_count = 0
+            for commander in commanders:
+                # Проверяем тип уведомления
+                if notification_type:
+                    settings = await self.db.get_notification_settings(commander['telegram_id'])
+                    if not settings.get(f'{notification_type}_notifications', True):
+                        continue
+                
+                if await self.send_notification(commander['telegram_id'], message):
+                    sent_count += 1
+            
+            logger.info(f"Уведомление отправлено {sent_count} командирам")
+            return sent_count
+            
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления командирам: {e}")
+            return 0
+    
     async def send_daily_summary(self):
         """Отправка ежедневной сводки в 19:00"""
         if not self.daily_summary_enabled:
@@ -62,7 +130,7 @@ class NotificationSystem:
         try:
             logger.info("📊 Отправка ежедневной сводки...")
             
-            # Получаем статистику
+            # Получаем статистику (только show_in_reports=True)
             total_users = await self.db.get_total_users()
             present_users = await self.db.get_present_users()
             absent_users = await self.db.get_absent_users_count()
@@ -71,15 +139,10 @@ class NotificationSystem:
             absent_list = await self.db.get_absent_users()
             
             # Выбираем случайный заголовок
-            header = random.choice(self.notification_texts.get("daily_summary", [
-                "📊 Ежедневная сводка готовности",
-                "📈 Отчет по личному составу",
-                "📋 Статистика на сегодня"
-            ]))
+            header = self.get_random_template("daily_summary", date=date.today().strftime('%d.%m.%Y'))
             
             # Формируем сообщение
             message = f"{header}\n\n"
-            message += f"📅 Дата: {date.today().strftime('%d.%m.%Y')}\n"
             message += f"🕐 Время: {datetime.now().strftime('%H:%M')}\n\n"
             message += f"👥 Всего бойцов: {total_users}\n"
             message += f"✅ Присутствуют: {present_users}\n"
@@ -93,12 +156,8 @@ class NotificationSystem:
             else:
                 message += "🎉 *Все бойцы на месте!*"
             
-            # Отправляем админам
-            admin_ids = self.config.ADMIN_IDS
-            for admin_id in admin_ids:
-                await self.send_notification(admin_id, message)
-            
-            logger.info(f"✅ Ежедневная сводка отправлена {len(admin_ids)} админам")
+            # Отправляем командирам
+            await self.send_notification_to_commanders(message, "daily_summary")
             
         except Exception as e:
             logger.error(f"❌ Ошибка отправки ежедневной сводки: {e}")
@@ -119,18 +178,7 @@ class NotificationSystem:
                 return
             
             # Выбираем случайный текст напоминания
-            reminder_text = random.choice(self.notification_texts.get("reminders", [
-                "🔔 Эй, боец! Не забудь отметиться!",
-                "⏰ Время отметиться, товарищ!",
-                "📱 Ты еще не отметился сегодня!",
-                "🎯 Пора показать, что ты на месте!",
-                "💪 Не подведи команду - отметьсь!",
-                "🚀 Команда ждет твоей отметки!",
-                "⚡ Быстрая отметка - быстрая победа!",
-                "🎖️ Отметись и покажи свою готовность!",
-                "🔥 Горячая отметка для горячих бойцов!",
-                "🌟 Звездная отметка для звездного бойца!"
-            ]))
+            reminder_text = self.get_random_template("reminders")
             
             # Отправляем напоминания
             sent_count = 0
@@ -241,9 +289,15 @@ class NotificationSystem:
     async def update_notification_texts(self, new_texts: Dict):
         """Обновление текстов уведомлений"""
         try:
-            self.notification_texts.update(new_texts)
-            self.config.save_notification_texts(self.notification_texts)
-            logger.info("✅ Тексты уведомлений обновлены")
+            self.notification_templates.update(new_texts)
+            # Сохраняем обновленные шаблоны в файл, если файл существует
+            template_path = os.path.join('config', 'notifications.json')
+            if os.path.exists(template_path):
+                with open(template_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.notification_templates, f, ensure_ascii=False, indent=4)
+                logger.info("✅ Шаблоны уведомлений обновлены и сохранены")
+            else:
+                logger.warning("Файл notifications.json не найден, невозможно сохранить обновленные шаблоны.")
             return True
         except Exception as e:
             logger.error(f"Ошибка обновления текстов уведомлений: {e}")

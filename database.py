@@ -5,6 +5,7 @@ import sqlite3
 import asyncio
 import aiosqlite
 import logging
+import re
 from datetime import datetime, date
 from typing import List, Dict, Optional, Tuple
 import json
@@ -40,7 +41,7 @@ class Database:
     async def _create_tables(self):
         """Создание таблиц базы данных"""
         async with self.connection.cursor() as cursor:
-            # Таблица пользователей
+            # Таблица пользователей (обновленная структура)
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY,
@@ -48,12 +49,27 @@ class Database:
                     name TEXT NOT NULL,
                     location TEXT,
                     is_admin BOOLEAN DEFAULT FALSE,
+                    is_commander BOOLEAN DEFAULT FALSE,
+                    can_get_notifications BOOLEAN DEFAULT FALSE,
+                    show_in_reports BOOLEAN DEFAULT TRUE,
+                    status TEXT DEFAULT 'absent',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
-            # Таблица отметок
+            # Таблица локаций
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS locations (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL,
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Таблица отметок (обновленная)
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS attendance (
                     id INTEGER PRIMARY KEY,
@@ -62,8 +78,22 @@ class Database:
                     time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     location TEXT,
                     status TEXT DEFAULT 'present',
+                    note TEXT,
                     FOREIGN KEY (user_id) REFERENCES users (id),
                     UNIQUE(user_id, date)
+                )
+            ''')
+            
+            # Таблица детального журнала отметок
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS attendance_log (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    location TEXT,
+                    note TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
                 )
             ''')
             
@@ -79,7 +109,7 @@ class Database:
                 )
             ''')
             
-            # Таблица настроек уведомлений
+            # Таблица настроек уведомлений (обновленная)
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS notification_settings (
                     id INTEGER PRIMARY KEY,
@@ -87,17 +117,124 @@ class Database:
                     enabled BOOLEAN DEFAULT TRUE,
                     daily_summary BOOLEAN DEFAULT TRUE,
                     reminders BOOLEAN DEFAULT TRUE,
+                    arrival_notifications BOOLEAN DEFAULT TRUE,
+                    departure_notifications BOOLEAN DEFAULT TRUE,
                     silent_mode BOOLEAN DEFAULT FALSE,
                     FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            
+            # Таблица шаблонов уведомлений
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS notification_templates (
+                    id INTEGER PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    template TEXT NOT NULL,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
             # Создаем индексы для оптимизации
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date)')
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_user ON attendance(user_id)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_log_timestamp ON attendance_log(timestamp)')
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_commander ON users(is_commander)')
+            
+            # Инициализируем базовые локации
+            await self._init_default_locations()
+            
+            # Инициализируем шаблоны уведомлений
+            await self._init_notification_templates()
             
             await self.connection.commit()
+    
+    async def _init_default_locations(self):
+        """Инициализация базовых локаций"""
+        default_locations = [
+            ("🏢 Офис", "Главный офис"),
+            ("🏭 Производство", "Производственная площадка"),
+            ("🚗 В пути", "В командировке или в дороге"),
+            ("🏥 Больничный", "На больничном"),
+            ("🏖️ Отпуск", "В отпуске"),
+            ("📚 Обучение", "На обучении"),
+            ("🏠 Удаленка", "Удаленная работа")
+        ]
+        
+        async with self.connection.cursor() as cursor:
+            for name, description in default_locations:
+                await cursor.execute('''
+                    INSERT OR IGNORE INTO locations (name, description)
+                    VALUES (?, ?)
+                ''', (name, description))
+    
+    async def _init_notification_templates(self):
+        """Инициализация шаблонов уведомлений"""
+        templates = [
+            ("reminder", "🔔 Напоминание: не забудьте отметиться!"),
+            ("reminder", "⏰ Время отметиться в системе"),
+            ("reminder", "📝 Ждем вашу отметку о присутствии"),
+            ("reminder", "✅ Пожалуйста, подтвердите свое присутствие"),
+            ("reminder", "🎯 Не забудьте отметиться сегодня"),
+            ("reminder", "📊 Ожидаем вашу отметку для сводки"),
+            ("reminder", "🕐 Время ежедневной отметки"),
+            ("reminder", "📋 Требуется отметка о присутствии"),
+            ("reminder", "🔍 Ждем подтверждения вашего статуса"),
+            ("reminder", "📈 Отметка нужна для статистики"),
+            ("daily_summary", "📊 Ежедневная сводка за {date}"),
+            ("arrival", "✅ {name} прибыл в {location}"),
+            ("departure", "🚪 {name} убыл в {location}"),
+            ("user_added", "👤 Добавлен новый пользователь: {name}"),
+            ("user_deleted", "🗑️ Удален пользователь: {name}"),
+            ("system_alert", "⚠️ Системное уведомление: {message}")
+        ]
+        
+        async with self.connection.cursor() as cursor:
+            for template_type, template in templates:
+                await cursor.execute('''
+                    INSERT OR IGNORE INTO notification_templates (type, template)
+                    VALUES (?, ?)
+                ''', (template_type, template))
+
+    @staticmethod
+    def validate_full_name(name: str) -> Tuple[bool, str]:
+        """
+        Валидация ФИО
+        Возвращает (is_valid, error_message)
+        """
+        if not name or not name.strip():
+            return False, "ФИО не может быть пустым"
+        
+        name = name.strip()
+        
+        # Проверка минимальной длины
+        if len(name) < 5:
+            return False, "ФИО должно содержать минимум 5 символов"
+        
+        # Проверка на кириллицу
+        if not re.match(r'^[а-яёА-ЯЁ\s\.]+$', name):
+            return False, "ФИО должно содержать только кириллицу, пробелы и точки"
+        
+        # Проверка на минимум 2 части (фамилия и инициалы)
+        parts = name.split()
+        if len(parts) < 2:
+            return False, "ФИО должно содержать минимум 2 части (например: Иванов И.И.)"
+        
+        # Проверка на бессмысленные строки
+        meaningless_patterns = [
+            r'^[А-ЯЁ]{1,3}$',  # Одна буква
+            r'^[0-9]+$',       # Только цифры
+            r'^[А-ЯЁ\s]+[0-9]+$',  # Буквы + цифры
+            r'^[А-ЯЁ]{1,2}\.[А-ЯЁ]{1,2}\.$'  # Только инициалы
+        ]
+        
+        for pattern in meaningless_patterns:
+            if re.match(pattern, name):
+                return False, "ФИО не может состоять только из инициалов или содержать цифры"
+        
+        return True, ""
     
     async def close(self):
         """Закрытие соединения с базой данных"""
@@ -121,20 +258,30 @@ class Database:
             return False
     
     # Методы для работы с пользователями
-    async def add_user(self, telegram_id: int, name: str, location: str = None) -> bool:
-        """Добавление нового пользователя"""
+    async def add_user(self, telegram_id: int, name: str, location: str = None) -> Tuple[bool, str]:
+        """Добавление нового пользователя с валидацией"""
         try:
+            # Валидация ФИО
+            is_valid, error_msg = self.validate_full_name(name)
+            if not is_valid:
+                return False, error_msg
+            
+            # Проверка на существующего пользователя
+            existing_user = await self.get_user(telegram_id)
+            if existing_user:
+                return False, "Пользователь с таким Telegram ID уже существует"
+            
             async with self.connection.cursor() as cursor:
                 await cursor.execute('''
-                    INSERT OR REPLACE INTO users (telegram_id, name, location)
-                    VALUES (?, ?, ?)
+                    INSERT INTO users (telegram_id, name, location, status)
+                    VALUES (?, ?, ?, 'absent')
                 ''', (telegram_id, name, location))
                 
                 user_id = cursor.lastrowid
                 
                 # Добавляем настройки уведомлений по умолчанию
                 await cursor.execute('''
-                    INSERT OR IGNORE INTO notification_settings (user_id)
+                    INSERT INTO notification_settings (user_id)
                     VALUES (?)
                 ''', (user_id,))
                 
@@ -143,11 +290,257 @@ class Database:
                 # Логируем событие
                 await self.log_event(user_id, "user_added", f"Добавлен пользователь: {name}")
                 
-                return True
+                return True, "Пользователь успешно добавлен"
                 
         except Exception as e:
             logger.error(f"Ошибка добавления пользователя: {e}")
+            return False, f"Ошибка добавления пользователя: {str(e)}"
+    
+    async def check_user_exists(self, telegram_id: int = None, name: str = None) -> bool:
+        """Проверка существования пользователя по Telegram ID или имени"""
+        try:
+            async with self.connection.cursor() as cursor:
+                if telegram_id:
+                    await cursor.execute('SELECT 1 FROM users WHERE telegram_id = ?', (telegram_id,))
+                elif name:
+                    await cursor.execute('SELECT 1 FROM users WHERE name = ?', (name,))
+                else:
+                    return False
+                
+                return await cursor.fetchone() is not None
+                
+        except Exception as e:
+            logger.error(f"Ошибка проверки существования пользователя: {e}")
             return False
+    
+    async def get_commanders(self) -> List[Dict]:
+        """Получение всех командиров"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT * FROM users 
+                    WHERE is_commander = TRUE 
+                    ORDER BY name
+                ''')
+                rows = await cursor.fetchall()
+                
+                columns = [description[0] for description in cursor.description]
+                return [dict(zip(columns, row)) for row in rows]
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения командиров: {e}")
+            return []
+    
+    async def get_users_with_notifications(self) -> List[Dict]:
+        """Получение пользователей с включенными уведомлениями"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT u.* FROM users u
+                    INNER JOIN notification_settings ns ON u.id = ns.user_id
+                    WHERE ns.enabled = TRUE AND u.can_get_notifications = TRUE
+                    ORDER BY u.name
+                ''')
+                rows = await cursor.fetchall()
+                
+                columns = [description[0] for description in cursor.description]
+                return [dict(zip(columns, row)) for row in rows]
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения пользователей с уведомлениями: {e}")
+            return []
+    
+    async def update_user_status(self, telegram_id: int, status: str, location: str = None, note: str = None) -> bool:
+        """Обновление статуса пользователя с логированием"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return False
+            
+            async with self.connection.cursor() as cursor:
+                # Обновляем статус пользователя
+                await cursor.execute('''
+                    UPDATE users SET status = ?, location = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE telegram_id = ?
+                ''', (status, location, telegram_id))
+                
+                # Добавляем запись в детальный журнал
+                await cursor.execute('''
+                    INSERT INTO attendance_log (user_id, action, location, note)
+                    VALUES (?, ?, ?, ?)
+                ''', (user['id'], status, location, note))
+                
+                # Обновляем или добавляем отметку за сегодня
+                if status == 'present':
+                    await cursor.execute('''
+                        INSERT OR REPLACE INTO attendance (user_id, date, location, status, note)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (user['id'], date.today(), location, status, note))
+                
+                await self.connection.commit()
+                
+                # Логируем событие
+                action_desc = "прибыл" if status == "present" else "убыл"
+                await self.log_event(user['id'], f"user_{action_desc}", f"{action_desc.title()}: {location or 'не указано'}")
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Ошибка обновления статуса пользователя: {e}")
+            return False
+    
+    async def get_user_status(self, telegram_id: int) -> Optional[str]:
+        """Получение текущего статуса пользователя"""
+        try:
+            user = await self.get_user(telegram_id)
+            return user['status'] if user else None
+        except Exception as e:
+            logger.error(f"Ошибка получения статуса пользователя: {e}")
+            return None
+    
+    # Методы для работы с локациями
+    async def get_locations(self) -> List[Dict]:
+        """Получение всех активных локаций"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT * FROM locations 
+                    WHERE is_active = TRUE 
+                    ORDER BY name
+                ''')
+                rows = await cursor.fetchall()
+                
+                columns = [description[0] for description in cursor.description]
+                return [dict(zip(columns, row)) for row in rows]
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения локаций: {e}")
+            return []
+    
+    async def add_location(self, name: str, description: str = None) -> bool:
+        """Добавление новой локации"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    INSERT INTO locations (name, description)
+                    VALUES (?, ?)
+                ''', (name, description))
+                
+                await self.connection.commit()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Ошибка добавления локации: {e}")
+            return False
+    
+    async def delete_location(self, location_id: int) -> bool:
+        """Удаление локации"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('DELETE FROM locations WHERE id = ?', (location_id,))
+                await self.connection.commit()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Ошибка удаления локации: {e}")
+            return False
+    
+    # Методы для работы с детальным журналом
+    async def get_attendance_log(self, user_id: int = None, limit: int = 50) -> List[Dict]:
+        """Получение детального журнала отметок"""
+        try:
+            async with self.connection.cursor() as cursor:
+                if user_id:
+                    await cursor.execute('''
+                        SELECT al.*, u.name 
+                        FROM attendance_log al
+                        INNER JOIN users u ON al.user_id = u.id
+                        WHERE al.user_id = ?
+                        ORDER BY al.timestamp DESC
+                        LIMIT ?
+                    ''', (user_id, limit))
+                else:
+                    await cursor.execute('''
+                        SELECT al.*, u.name 
+                        FROM attendance_log al
+                        INNER JOIN users u ON al.user_id = u.id
+                        ORDER BY al.timestamp DESC
+                        LIMIT ?
+                    ''', (limit,))
+                
+                rows = await cursor.fetchall()
+                columns = [description[0] for description in cursor.description]
+                return [dict(zip(columns, row)) for row in rows]
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения журнала отметок: {e}")
+            return []
+    
+    # Методы для работы с шаблонами уведомлений
+    async def get_notification_template(self, template_type: str) -> Optional[str]:
+        """Получение случайного шаблона уведомления по типу"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT template FROM notification_templates
+                    WHERE type = ? AND is_active = TRUE
+                    ORDER BY RANDOM()
+                    LIMIT 1
+                ''', (template_type,))
+                
+                row = await cursor.fetchone()
+                return row[0] if row else None
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения шаблона уведомления: {e}")
+            return None
+    
+    # Методы для валидации и проверок
+    async def can_delete_user(self, telegram_id: int) -> Tuple[bool, str]:
+        """Проверка возможности удаления пользователя"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return False, "Пользователь не найден"
+            
+            # Проверяем, не пытается ли пользователь удалить себя
+            # (это будет проверяться в обработчике)
+            
+            # Проверяем, не является ли последним администратором
+            if user['is_admin']:
+                admin_count = await self.get_admin_count()
+                if admin_count <= 1:
+                    return False, "Нельзя удалить последнего администратора"
+            
+            return True, "Пользователь может быть удален"
+            
+        except Exception as e:
+            logger.error(f"Ошибка проверки возможности удаления: {e}")
+            return False, f"Ошибка проверки: {str(e)}"
+    
+    async def get_admin_count(self) -> int:
+        """Получение количества администраторов"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('SELECT COUNT(*) FROM users WHERE is_admin = TRUE')
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения количества админов: {e}")
+            return 0
+    
+    async def get_commander_count(self) -> int:
+        """Получение количества командиров"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('SELECT COUNT(*) FROM users WHERE is_commander = TRUE')
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения количества командиров: {e}")
+            return 0
     
     async def get_user(self, telegram_id: int) -> Optional[Dict]:
         """Получение пользователя по Telegram ID"""
@@ -229,29 +622,51 @@ class Database:
             return []
     
     # Методы для работы с отметками
-    async def mark_attendance(self, telegram_id: int, location: str = None) -> bool:
-        """Отметка присутствия пользователя"""
+    async def mark_attendance(self, telegram_id: int, location: str = None, note: str = None) -> Tuple[bool, str]:
+        """Отметка присутствия пользователя с валидацией"""
         try:
             user = await self.get_user(telegram_id)
             if not user:
-                return False
+                return False, "Пользователь не найден"
             
-            async with self.connection.cursor() as cursor:
-                await cursor.execute('''
-                    INSERT OR REPLACE INTO attendance (user_id, date, location)
-                    VALUES (?, ?, ?)
-                ''', (user['id'], date.today(), location))
-                
-                await self.connection.commit()
-                
-                # Логируем событие
-                await self.log_event(user['id'], "attendance_marked", f"Отметка: {location or 'не указано'}")
-                
-                return True
+            # Проверяем текущий статус
+            current_status = user.get('status', 'absent')
+            if current_status == 'present':
+                return False, "Вы уже отмечены как присутствующий"
+            
+            # Обновляем статус пользователя
+            success = await self.update_user_status(telegram_id, 'present', location, note)
+            if success:
+                return True, "Отметка о прибытии успешно зафиксирована"
+            else:
+                return False, "Ошибка при фиксации отметки"
                 
         except Exception as e:
             logger.error(f"Ошибка отметки присутствия: {e}")
-            return False
+            return False, f"Ошибка отметки: {str(e)}"
+    
+    async def mark_departure(self, telegram_id: int, location: str = None, note: str = None) -> Tuple[bool, str]:
+        """Отметка убытия пользователя с валидацией"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return False, "Пользователь не найден"
+            
+            # Проверяем текущий статус
+            current_status = user.get('status', 'absent')
+            if current_status == 'absent':
+                return False, "Вы уже отмечены как отсутствующий"
+            
+            # Обновляем статус пользователя
+            success = await self.update_user_status(telegram_id, 'absent', location, note)
+            if success:
+                return True, "Отметка об убытии успешно зафиксирована"
+            else:
+                return False, "Ошибка при фиксации отметки"
+                
+        except Exception as e:
+            logger.error(f"Ошибка отметки убытия: {e}")
+            return False, f"Ошибка отметки: {str(e)}"
     
     async def get_attendance_today(self) -> List[Dict]:
         """Получение отметок за сегодня"""
@@ -281,23 +696,23 @@ class Database:
             return []
     
     async def get_absent_users(self) -> List[Dict]:
-        """Получение отсутствующих пользователей"""
+        """Получение отсутствующих пользователей (только show_in_reports=True)"""
         try:
             async with self.connection.cursor() as cursor:
                 await cursor.execute('''
-                    SELECT u.id, u.name, u.location
+                    SELECT u.id, u.name, u.location, u.status
                     FROM users u
-                    LEFT JOIN attendance a ON u.id = a.user_id AND a.date = ?
-                    WHERE a.id IS NULL
+                    WHERE u.show_in_reports = TRUE AND u.status = 'absent'
                     ORDER BY u.name
-                ''', (date.today(),))
+                ''')
                 
                 rows = await cursor.fetchall()
                 return [
                     {
                         'id': row[0],
                         'name': row[1],
-                        'location': row[2]
+                        'location': row[2],
+                        'status': row[3]
                     }
                     for row in rows
                 ]
@@ -319,10 +734,13 @@ class Database:
             return 0
     
     async def get_present_users(self) -> int:
-        """Количество присутствующих сегодня"""
+        """Количество присутствующих сегодня (только show_in_reports=True)"""
         try:
             async with self.connection.cursor() as cursor:
-                await cursor.execute('SELECT COUNT(*) FROM attendance WHERE date = ?', (date.today(),))
+                await cursor.execute('''
+                    SELECT COUNT(*) FROM users 
+                    WHERE show_in_reports = TRUE AND status = 'present'
+                ''')
                 result = await cursor.fetchone()
                 return result[0] if result else 0
         except Exception as e:
