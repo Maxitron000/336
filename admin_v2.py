@@ -1,4 +1,4 @@
-THIS SHOULD BE A LINTER ERROR"""
+"""
 Админская панель v2.0 для бота учета персонала
 Соответствует чек-листу v2.0 с многоуровневой структурой и эмодзи
 """
@@ -19,7 +19,10 @@ from database import (
 from keyboards import (
     get_admin_keyboard, get_personnel_keyboard, get_journal_keyboard,
     get_settings_keyboard, get_danger_zone_keyboard, get_notification_settings_keyboard,
-    get_export_journal_keyboard, get_confirmation_keyboard, get_double_confirmation_keyboard,
+    get_export_journal_keyboard
+)
+from keyboards_v2 import (
+    get_confirmation_keyboard, get_double_confirmation_keyboard,
     get_cancel_keyboard, get_back_keyboard
 )
 from utils import (
