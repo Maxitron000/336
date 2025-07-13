@@ -5,8 +5,10 @@ import pytz
 import time
 from datetime import datetime
 
-# Устанавливаем часовой пояс Калининграда
-KALININGRAD_TZ = pytz.timezone('Europe/Kaliningrad')
+# Настройка часового пояса (можно изменить в .env файле)
+import os
+TIMEZONE = os.getenv('TIMEZONE', 'Europe/Kaliningrad')
+KALININGRAD_TZ = pytz.timezone(TIMEZONE)
 
 # Кэш для защиты от быстрых нажатий
 LAST_ACTION_TIME = {}

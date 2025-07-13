@@ -1,4 +1,4 @@
-THIS SHOULD BE A LINTER ERRORfrom telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from database import get_all_users, get_all_logs, clear_logs, get_daily_stats
 from keyboards import (
@@ -269,6 +269,42 @@ def handle_admin_callback(update: Update, context: CallbackContext):
             "🗑️ Весь журнал - удалит ВСЕ записи\n\n"
             "⚠️ Все действия НЕОБРАТИМЫ!",
             reply_markup=clear_logs_period_keyboard(),
+            parse_mode='Markdown'
+        )
+
+    elif data == 'danger_clear_today':
+        query.edit_message_text(
+            "⚠️ **ВНИМАНИЕ! ОЧИСТКА ЗА СЕГОДНЯ!**\n\n"
+            "📅 Вы хотите удалить записи за сегодня?\n"
+            "🗑️ Все записи за сегодняшний день будут удалены!\n"
+            "📊 Восстановление будет невозможно!\n"
+            "🔒 Это действие логируется!\n\n"
+            "⚠️ Подтвердите действие:",
+            reply_markup=confirm_danger_keyboard('clear_today'),
+            parse_mode='Markdown'
+        )
+
+    elif data == 'danger_clear_week':
+        query.edit_message_text(
+            "⚠️ **ВНИМАНИЕ! ОЧИСТКА ЗА НЕДЕЛЮ!**\n\n"
+            "📆 Вы хотите удалить записи за неделю?\n"
+            "🗑️ Все записи за последние 7 дней будут удалены!\n"
+            "📊 Восстановление будет невозможно!\n"
+            "🔒 Это действие логируется!\n\n"
+            "⚠️ Подтвердите действие:",
+            reply_markup=confirm_danger_keyboard('clear_week'),
+            parse_mode='Markdown'
+        )
+
+    elif data == 'danger_clear_month':
+        query.edit_message_text(
+            "⚠️ **ВНИМАНИЕ! ОЧИСТКА ЗА МЕСЯЦ!**\n\n"
+            "🗓️ Вы хотите удалить записи за месяц?\n"
+            "🗑️ Все записи за последние 30 дней будут удалены!\n"
+            "📊 Восстановление будет невозможно!\n"
+            "🔒 Это действие логируется!\n\n"
+            "⚠️ Подтвердите действие:",
+            reply_markup=confirm_danger_keyboard('clear_month'),
             parse_mode='Markdown'
         )
 
