@@ -26,7 +26,7 @@ from admin import handle_admin_callback
 logger = logging.getLogger(__name__)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
+    """Обработчик команды /start - Чистый чат"""
     user_id = update.effective_user.id
     username = update.effective_user.username
     
@@ -41,6 +41,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Используйте команду /register для регистрации.",
             reply_markup=get_cancel_keyboard()
         )
+        # Удаляем сообщение с командой /start для чистого чата
+        await update.message.delete()
         return
     
     # Обновляем активность пользователя
@@ -63,6 +65,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='HTML',
         reply_markup=get_main_keyboard()
     )
+    
+    # Удаляем сообщение с командой /start для чистого чата
+    await update.message.delete()
 
 async def register_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /register"""
@@ -195,7 +200,7 @@ async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /admin"""
+    """Обработчик команды /admin - Админ-панель v2.0"""
     user_id = update.effective_user.id
     
     if not is_admin(user_id):
@@ -357,7 +362,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "back_to_main":
             await handle_back_to_main(update, context)
         elif data.startswith("admin:"):
-            await handle_admin_callback(update, context, data)
+            from admin_v2 import handle_admin_callback_v2
+            await handle_admin_callback_v2(update, context, data)
         elif data.startswith("confirm:"):
             await handle_confirmation_callback(update, context, data)
         elif data.startswith("double_confirm:"):
@@ -485,6 +491,13 @@ async def handle_action_callback(update: Update, context: ContextTypes.DEFAULT_T
         )
         
         logger.info(f"Пользователь {user['full_name']} (ID: {user_id}) {action_text} {location}")
+        
+        # Отправляем уведомление админам о действии пользователя
+        try:
+            from notifications_v2 import notify_about_user_action_v2
+            await notify_about_user_action_v2(context.bot, user, action, location)
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления о действии: {e}")
     else:
         await update.callback_query.edit_message_text(
             "❌ Ошибка при записи действия. Попробуйте еще раз.",

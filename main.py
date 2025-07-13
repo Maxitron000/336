@@ -19,7 +19,7 @@ from handlers import (
     button_handler, cancel_handler
 )
 from database import init_db, close_db
-from notifications import start_notification_scheduler
+from notifications_v2 import start_notification_scheduler_v2
 from utils import is_admin
 
 # Загружаем переменные окружения
@@ -77,8 +77,8 @@ async def main():
     # Добавляем обработчик ошибок
     app.add_error_handler(error_handler)
     
-    # Запускаем планировщик уведомлений
-    start_notification_scheduler(app)
+    # Запускаем планировщик уведомлений v2.0
+    start_notification_scheduler_v2(app)
     
     logger.info("🚀 Бот запущен")
     print("🚀 Бот запущен и готов к работе!")
