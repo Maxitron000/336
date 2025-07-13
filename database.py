@@ -41,15 +41,14 @@ class Database:
     async def _create_tables(self):
         """Создание таблиц базы данных"""
         async with self.connection.cursor() as cursor:
-            # Таблица пользователей (обновленная структура)
+            # Таблица пользователей (обновленная структура с 3 ролями)
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY,
                     telegram_id INTEGER UNIQUE NOT NULL,
                     name TEXT NOT NULL,
                     location TEXT,
-                    is_admin BOOLEAN DEFAULT FALSE,
-                    is_commander BOOLEAN DEFAULT FALSE,
+                    role TEXT DEFAULT 'soldier' CHECK (role IN ('soldier', 'admin', 'main_admin')),
                     can_get_notifications BOOLEAN DEFAULT FALSE,
                     show_in_reports BOOLEAN DEFAULT TRUE,
                     status TEXT DEFAULT 'absent',
@@ -141,7 +140,7 @@ class Database:
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_log_timestamp ON attendance_log(timestamp)')
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)')
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_commander ON users(is_commander)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)')
             
             # Инициализируем базовые локации
             await self._init_default_locations()
@@ -319,7 +318,7 @@ class Database:
             async with self.connection.cursor() as cursor:
                 await cursor.execute('''
                     SELECT * FROM users 
-                    WHERE is_commander = TRUE 
+                    WHERE role IN ('admin', 'main_admin') 
                     ORDER BY name
                 ''')
                 rows = await cursor.fetchall()
@@ -507,7 +506,7 @@ class Database:
             # (это будет проверяться в обработчике)
             
             # Проверяем, не является ли последним администратором
-            if user['is_admin']:
+            if user['role'] in ('admin', 'main_admin'):
                 admin_count = await self.get_admin_count()
                 if admin_count <= 1:
                     return False, "Нельзя удалить последнего администратора"
@@ -522,7 +521,7 @@ class Database:
         """Получение количества администраторов"""
         try:
             async with self.connection.cursor() as cursor:
-                await cursor.execute('SELECT COUNT(*) FROM users WHERE is_admin = TRUE')
+                await cursor.execute('SELECT COUNT(*) FROM users WHERE role IN (\'admin\', \'main_admin\')')
                 row = await cursor.fetchone()
                 return row[0] if row else 0
                 
@@ -534,7 +533,7 @@ class Database:
         """Получение количества командиров"""
         try:
             async with self.connection.cursor() as cursor:
-                await cursor.execute('SELECT COUNT(*) FROM users WHERE is_commander = TRUE')
+                await cursor.execute('SELECT COUNT(*) FROM users WHERE role IN (\'admin\', \'main_admin\')')
                 row = await cursor.fetchone()
                 return row[0] if row else 0
                 
@@ -866,3 +865,89 @@ class Database:
         except Exception as e:
             logger.error(f"Ошибка обновления настроек уведомлений: {e}")
             return False
+    
+    async def get_user_role(self, telegram_id: int) -> str:
+        """Получение роли пользователя"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT role FROM users WHERE telegram_id = ?
+                ''', (telegram_id,))
+                row = await cursor.fetchone()
+                return row[0] if row else 'soldier'
+        except Exception as e:
+            logger.error(f"Ошибка получения роли пользователя: {e}")
+            return 'soldier'
+    
+    async def set_user_role(self, telegram_id: int, role: str) -> bool:
+        """Установка роли пользователя"""
+        if role not in ['soldier', 'admin', 'main_admin']:
+            return False
+        
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP 
+                    WHERE telegram_id = ?
+                ''', (role, telegram_id))
+                await self.connection.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Ошибка установки роли пользователя: {e}")
+            return False
+    
+    async def is_admin(self, telegram_id: int) -> bool:
+        """Проверка, является ли пользователь админом или главным админом"""
+        role = await self.get_user_role(telegram_id)
+        return role in ['admin', 'main_admin']
+    
+    async def is_main_admin(self, telegram_id: int) -> bool:
+        """Проверка, является ли пользователь главным админом"""
+        role = await self.get_user_role(telegram_id)
+        return role == 'main_admin'
+    
+    async def get_admins(self) -> List[Dict]:
+        """Получение списка всех администраторов"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT telegram_id, name, role, created_at 
+                    FROM users 
+                    WHERE role IN ('admin', 'main_admin') 
+                    ORDER BY role DESC, name
+                ''')
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        'telegram_id': row[0],
+                        'name': row[1],
+                        'role': row[2],
+                        'created_at': row[3]
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"Ошибка получения списка админов: {e}")
+            return []
+    
+    async def get_main_admin(self) -> Optional[Dict]:
+        """Получение главного администратора"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT telegram_id, name, created_at 
+                    FROM users 
+                    WHERE role = 'main_admin' 
+                    LIMIT 1
+                ''')
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        'telegram_id': row[0],
+                        'name': row[1],
+                        'created_at': row[2]
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка получения главного админа: {e}")
+            return None

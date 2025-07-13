@@ -31,12 +31,15 @@ class AdminPanel:
     
     async def is_admin(self, user_id: int) -> bool:
         """Проверка является ли пользователь админом"""
-        return user_id in self.config.ADMIN_IDS
+        return await self.db.is_admin(user_id)
     
     async def is_main_admin(self, user_id: int) -> bool:
         """Проверка является ли пользователь главным админом"""
-        # В простой версии главный админ - первый в списке
-        return user_id == self.config.ADMIN_IDS[0] if self.config.ADMIN_IDS else False
+        return await self.db.is_main_admin(user_id)
+    
+    async def get_user_role(self, user_id: int) -> str:
+        """Получение роли пользователя"""
+        return await self.db.get_user_role(user_id)
     
     # Методы для быстрой сводки (Уровень 1)
     async def get_dashboard_data(self) -> Dict:
@@ -234,48 +237,74 @@ class AdminPanel:
             return {}
     
     # Методы управления админами (Уровень 3)
-    async def add_admin(self, telegram_id: int) -> bool:
-        """Добавление админа"""
+    async def add_admin(self, telegram_id: int, role: str = 'admin') -> bool:
+        """Добавление администратора"""
         try:
-            if telegram_id not in self.config.ADMIN_IDS:
-                self.config.ADMIN_IDS.append(telegram_id)
-                # В реальной версии нужно сохранить в конфиг
-                await self.db.log_event(None, "admin_added", f"Добавлен админ: {telegram_id}")
-                return True
-            return False
+            if role not in ['admin', 'main_admin']:
+                return False
+            
+            # Проверяем, существует ли пользователь
+            user = await self.db.get_user(telegram_id)
+            if not user:
+                return False
+            
+            # Устанавливаем роль
+            success = await self.db.set_user_role(telegram_id, role)
+            if success:
+                await self.notification_system.send_admin_notification(
+                    "admin_added", f"Добавлен {role}: {user['name']}", user['name']
+                )
+            return success
         except Exception as e:
             logger.error(f"Ошибка добавления админа: {e}")
             return False
     
     async def remove_admin(self, telegram_id: int) -> bool:
-        """Удаление админа"""
+        """Удаление администратора (смена на бойца)"""
         try:
-            if telegram_id in self.config.ADMIN_IDS and len(self.config.ADMIN_IDS) > 1:
-                self.config.ADMIN_IDS.remove(telegram_id)
-                # В реальной версии нужно сохранить в конфиг
-                await self.db.log_event(None, "admin_removed", f"Удален админ: {telegram_id}")
-                return True
-            return False
+            user = await self.db.get_user(telegram_id)
+            if not user:
+                return False
+            
+            # Проверяем, не является ли последним главным админом
+            if await self.db.is_main_admin(telegram_id):
+                main_admin_count = len([u for u in await self.db.get_admins() if u['role'] == 'main_admin'])
+                if main_admin_count <= 1:
+                    return False
+            
+            # Меняем роль на бойца
+            success = await self.db.set_user_role(telegram_id, 'soldier')
+            if success:
+                await self.notification_system.send_admin_notification(
+                    "admin_removed", f"Удален админ: {user['name']}", user['name']
+                )
+            return success
         except Exception as e:
             logger.error(f"Ошибка удаления админа: {e}")
             return False
     
     async def get_admins_list(self) -> List[Dict]:
-        """Получение списка админов"""
+        """Получение списка всех администраторов"""
         try:
-            admins = []
-            for admin_id in self.config.ADMIN_IDS:
-                user = await self.db.get_user(admin_id)
-                if user:
-                    admins.append({
-                        'id': admin_id,
-                        'name': user['name'],
-                        'is_main': admin_id == self.config.ADMIN_IDS[0] if self.config.ADMIN_IDS else False
-                    })
-            return admins
+            return await self.db.get_admins()
         except Exception as e:
             logger.error(f"Ошибка получения списка админов: {e}")
             return []
+    
+    async def format_admins_list(self, admins: List[Dict]) -> str:
+        """Форматирование списка администраторов"""
+        if not admins:
+            return "👑 Список администраторов пуст"
+        
+        message = "👑 *Список администраторов:*\n\n"
+        for i, admin in enumerate(admins, 1):
+            role_emoji = "👑" if admin['role'] == 'main_admin' else "👑"
+            role_name = "Главный админ" if admin['role'] == 'main_admin' else "Админ"
+            created = admin['created_at'][:10] if admin['created_at'] else "неизвестно"
+            message += f"{i}. {role_emoji} {admin['name']} ({role_name})\n"
+            message += f"   📅 Создан: {created}\n\n"
+        
+        return message
     
     # Методы опасной зоны (Уровень 3)
     async def mark_all_arrived(self, location: str) -> int:
@@ -415,10 +444,7 @@ class AdminPanel:
             elif action == "admins":
                 if subaction == "list":
                     admins = await self.get_admins_list()
-                    message = "👑 *Список администраторов:*\n\n"
-                    for admin in admins:
-                        status = "👑 Главный" if admin['is_main'] else "👤 Админ"
-                        message += f"• {admin['name']} ({status})\n"
+                    message = await self.format_admins_list(admins)
                 else:
                     message = "👑 *Управление админами*\n\nВыберите действие:"
                 keyboard = await self.get_keyboard_for_action("admins")

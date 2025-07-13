@@ -86,17 +86,21 @@ def validate_full_name(full_name: str) -> bool:
     return bool(re.match(pattern, full_name))
 
 def is_admin(telegram_id: int) -> bool:
-    """Проверка, является ли пользователь администратором"""
-    # Проверяем в переменных окружения
-    if telegram_id in ADMIN_IDS:
-        return True
-    
-    # Проверяем в базе данных
-    user = get_user(telegram_id)
-    if user and user.get('is_admin'):
-        return True
-    
-    return False
+    """Проверка, является ли пользователь админом"""
+    try:
+        from database import Database
+        import asyncio
+        
+        # Создаем временное подключение для проверки
+        db = Database()
+        asyncio.run(db.init())
+        result = asyncio.run(db.is_admin(telegram_id))
+        asyncio.run(db.close())
+        return result
+    except Exception as e:
+        import logging
+        logging.error(f"Ошибка проверки админа: {e}")
+        return False
 
 def get_locations_list() -> List[str]:
     """Получение списка доступных локаций"""
@@ -363,19 +367,41 @@ def format_duration(seconds: int) -> str:
 
 def is_main_admin(telegram_id: int) -> bool:
     """Проверка, является ли пользователь главным админом"""
-    from database import get_user_role
-    return get_user_role(telegram_id) == 'main_admin'
+    try:
+        from database import Database
+        import asyncio
+        
+        # Создаем временное подключение для проверки
+        db = Database()
+        asyncio.run(db.init())
+        result = asyncio.run(db.is_main_admin(telegram_id))
+        asyncio.run(db.close())
+        return result
+    except Exception as e:
+        import logging
+        logging.error(f"Ошибка проверки главного админа: {e}")
+        return False
 
 def is_admin_or_main_admin(telegram_id: int) -> bool:
     """Проверка, является ли пользователь админом или главным админом"""
-    from database import get_user_role
-    role = get_user_role(telegram_id)
-    return role in ['admin', 'main_admin']
+    return is_admin(telegram_id)
 
 def get_user_role(telegram_id: int) -> str:
     """Получение роли пользователя"""
-    from database import get_user_role as db_get_user_role
-    return db_get_user_role(telegram_id)
+    try:
+        from database import Database
+        import asyncio
+        
+        # Создаем временное подключение для проверки
+        db = Database()
+        asyncio.run(db.init())
+        result = asyncio.run(db.get_user_role(telegram_id))
+        asyncio.run(db.close())
+        return result
+    except Exception as e:
+        import logging
+        logging.error(f"Ошибка получения роли пользователя: {e}")
+        return 'soldier'
 
 def get_role_display_name(role: str) -> str:
     """Получение отображаемого названия роли"""

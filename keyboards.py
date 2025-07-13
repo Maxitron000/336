@@ -157,20 +157,23 @@ def get_notifications_settings_keyboard():
 
 def get_admin_management_keyboard():
     """Клавиатура управления админами - Уровень 3"""
-    keyboard = [
-        [
-            InlineKeyboardButton("➕ Добавить админа", callback_data=admin_cb.new("admins", "add")),
-            InlineKeyboardButton("❌ Удалить админа", callback_data=admin_cb.new("admins", "remove")),
-            InlineKeyboardButton("📋 Список админов", callback_data=admin_cb.new("admins", "list"))
-        ],
-        [
-            InlineKeyboardButton("👑 Главный админ", callback_data=admin_cb.new("admins", "main_admin")),
-            InlineKeyboardButton("🔐 Права доступа", callback_data=admin_cb.new("admins", "permissions")),
-            InlineKeyboardButton("📊 Активность", callback_data=admin_cb.new("admins", "activity"))
-        ],
-        [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("settings", ""))]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    
+    keyboard.add(
+        InlineKeyboardButton("➕ Добавить админа", callback_data=admin_cb.new("admins", "add")),
+        InlineKeyboardButton("➕ Главный админ", callback_data=admin_cb.new("admins", "add_main")),
+        InlineKeyboardButton("❌ Удалить админа", callback_data=admin_cb.new("admins", "remove")),
+        InlineKeyboardButton("� Список админов", callback_data=admin_cb.new("admins", "list"))
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("🔐 Права доступа", callback_data=admin_cb.new("admins", "permissions")),
+        InlineKeyboardButton("📊 Активность", callback_data=admin_cb.new("admins", "activity"))
+    )
+    
+    keyboard.add([InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("settings", ""))])
+    
+    return keyboard
 
 def get_locations_keyboard():
     """Клавиатура управления локациями - Уровень 3"""
