@@ -1,7 +1,15 @@
 # config.py
 
-# Токен твоего бота (для публичного кода лучше хранить в .env!)
-TOKEN = "8040939701:AAFfULuaLMrnrQggJllGkOPWcTl24KUm_q8"
+import os
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения
+load_dotenv()
+
+# Токен твоего бота из переменных окружения
+TOKEN = os.getenv('BOT_TOKEN')
+if not TOKEN:
+    raise ValueError("BOT_TOKEN не найден в переменных окружения!")
 
 # Пути к файлам
 ADMINS_JSON = "data/admins.json"
