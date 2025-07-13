@@ -10,14 +10,13 @@ import time
 import logging
 import signal
 from datetime import datetime, time as dt_time
-from main import bot, dp, on_startup, on_shutdown
 
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('bot.log'),
+        logging.FileHandler('logs/bot.log'),
         logging.StreamHandler()
     ]
 )
@@ -49,11 +48,11 @@ def run_bot():
     try:
         logger.info("🚀 Запуск бота...")
         
-        # Инициализация
-        await on_startup(dp)
+        # Импортируем и запускаем бота
+        from main import dp, on_startup, on_shutdown
+        from aiogram import executor
         
         # Запуск бота
-        from aiogram import executor
         executor.start_polling(
             dp,
             on_startup=on_startup,
@@ -74,15 +73,10 @@ def run_bot():
         else:
             logger.error(f"❌ Превышено максимальное количество перезапусков ({max_restarts})")
             return False  # Сигнал для завершения
-    finally:
-        try:
-            await on_shutdown(dp)
-        except:
-            pass
     
     return False
 
-async def main():
+def main():
     """Главная функция"""
     global running, restart_count
     
@@ -102,7 +96,7 @@ async def main():
                 continue
             
             # Запускаем бота
-            should_restart = await run_bot()
+            should_restart = run_bot()
             
             if not should_restart:
                 break
@@ -122,8 +116,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        import asyncio
-        asyncio.run(main())
+        main()
     except Exception as e:
         logger.error(f"❌ Фатальная ошибка: {e}")
         sys.exit(1)

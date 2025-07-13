@@ -1,18 +1,14 @@
-# Основные зависимости для Telegram бота
-# Поддержка обеих версий: aiogram (main.py) и python-telegram-bot (main_optimized.py)
-
-# Для main_optimized.py (рекомендуется для PythonAnywhere)
-python-telegram-bot==20.7
-
-# Для main.py (если нужна совместимость)
+# Основные зависимости для Telegram бота на aiogram
 aiogram==2.25.1
-
-# Общие зависимости
 python-dotenv==1.0.0
-schedule==1.2.0
+
+# Планировщик задач
+aioschedule==0.5.2
+
+# Работа с временными зонами
 pytz==2023.3
 
-# Асинхронная работа с SQLite (для database.py)
+# Асинхронная работа с SQLite
 aiosqlite==0.19.0
 
 # Работа с данными
@@ -20,7 +16,7 @@ pandas==2.1.4
 openpyxl==3.1.2
 xlsxwriter==3.1.9
 
-# Генерация PDF отчетов (для export.py)
+# Генерация PDF отчетов
 reportlab==4.0.4
 
 # HTTP запросы
@@ -31,6 +27,3 @@ configparser==6.0.0
 
 # Расширения типов
 typing_extensions==4.8.0
-
-# Для aiogram (дополнительные зависимости)
-aioschedule==0.5.2
