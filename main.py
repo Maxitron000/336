@@ -25,6 +25,7 @@ from admin import AdminPanel
 from notifications import NotificationSystem
 from database import Database
 from config import Config
+from pythonanywhere_support import PythonAnywhereSupport
 
 # Настройка логирования
 logging.basicConfig(
@@ -45,6 +46,7 @@ dp = Dispatcher(bot, storage=storage)
 db = Database()
 notification_system = NotificationSystem(bot, db)
 admin_panel = AdminPanel(db, notification_system)
+pythonanywhere_support = PythonAnywhereSupport(db, notification_system)
 
 # Состояния FSM
 class UserStates(StatesGroup):
@@ -68,6 +70,9 @@ async def on_startup(dp):
         
         # Инициализация базы данных
         await db.init()
+        
+        # Настройка PythonAnywhere
+        await pythonanywhere_support.setup_pythonanywhere()
         
         # Регистрация обработчиков
         register_handlers(dp, admin_panel, notification_system)

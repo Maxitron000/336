@@ -2,7 +2,7 @@
 Клавиатуры для Telegram бота учета персонала
 """
 
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.callback_data import CallbackData
 
 # Callback data для админ-панели
@@ -13,15 +13,15 @@ def get_main_keyboard():
     """Главная клавиатура для обычных пользователей"""
     keyboard = [
         [
-            KeyboardButton("✅ Отметиться"),
-            KeyboardButton("📍 Указать локацию")
+            InlineKeyboardButton("✅ Отметиться", callback_data=user_cb.new("mark_attendance")),
+            InlineKeyboardButton("📍 Указать локацию", callback_data=user_cb.new("set_location"))
         ],
         [
-            KeyboardButton("📊 Мой статус"),
-            KeyboardButton("📖 Помощь")
+            InlineKeyboardButton("📊 Мой статус", callback_data=user_cb.new("my_status")),
+            InlineKeyboardButton("📖 Помощь", callback_data=user_cb.new("help"))
         ]
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    return InlineKeyboardMarkup(keyboard)
 
 def get_admin_keyboard():
     """Главная админская клавиатура - Уровень 1: 🏠 Главное меню"""
@@ -234,6 +234,18 @@ def get_maintenance_keyboard():
         [
             InlineKeyboardButton("🧹 Очистка данных", callback_data=admin_cb.new("maintenance", "cleanup")),
             InlineKeyboardButton("📋 Лог ТО", callback_data=admin_cb.new("maintenance", "maintenance_log"))
+        ],
+        [
+            InlineKeyboardButton("🔄 Принудительный перезапуск", callback_data=admin_cb.new("maintenance", "force_restart")),
+            InlineKeyboardButton("🚨 Экстренный перезапуск", callback_data=admin_cb.new("maintenance", "emergency_restart"))
+        ],
+        [
+            InlineKeyboardButton("📊 Статистика бэкапов", callback_data=admin_cb.new("maintenance", "backup_stats")),
+            InlineKeyboardButton("📈 Статистика перезапусков", callback_data=admin_cb.new("maintenance", "restart_stats"))
+        ],
+        [
+            InlineKeyboardButton("📋 Список бэкапов", callback_data=admin_cb.new("maintenance", "list_backups")),
+            InlineKeyboardButton("🐍 PythonAnywhere", callback_data=admin_cb.new("maintenance", "pythonanywhere_info"))
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("back", ""))]
     ]

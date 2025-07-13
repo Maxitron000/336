@@ -11,6 +11,10 @@ from aiogram.types import ParseMode, InlineKeyboardMarkup
 from database import Database
 from notifications import NotificationSystem
 from config import Config
+from monitoring import BotHealthMonitor
+from backup import BackupSystem
+from auto_restart import AutoRestartSystem
+from pythonanywhere_support import PythonAnywhereSupport
 from keyboards import (
     get_admin_keyboard, get_personnel_keyboard, get_journal_keyboard,
     get_settings_keyboard, get_notifications_settings_keyboard,
@@ -28,6 +32,12 @@ class AdminPanel:
         self.db = db
         self.config = Config()
         self.notification_system = notification_system
+        
+        # Инициализируем системы мониторинга
+        self.health_monitor = BotHealthMonitor(db)
+        self.backup_system = BackupSystem()
+        self.auto_restart = AutoRestartSystem()
+        self.pythonanywhere_support = PythonAnywhereSupport(db, notification_system)
     
     async def is_admin(self, user_id: int) -> bool:
         """Проверка является ли пользователь админом"""
@@ -322,12 +332,17 @@ class AdminPanel:
     async def create_backup(self) -> str:
         """Создание резервной копии"""
         try:
-            # В реальной версии нужно создать бэкап БД
-            await self.db.log_event(None, "backup_created", "Создана резервная копия")
-            return "backup_created.db"
+            backup_info = await self.backup_system.create_backup('manual')
+            
+            if backup_info['status'] == 'completed':
+                await self.db.log_event(None, "backup_created", f"Создан бэкап: {backup_info['name']}")
+                return f"✅ Бэкап создан: {backup_info['name']}"
+            else:
+                return f"❌ Ошибка создания бэкапа: {backup_info.get('error', 'Неизвестная ошибка')}"
+                
         except Exception as e:
             logger.error(f"Ошибка создания бэкапа: {e}")
-            return ""
+            return f"❌ Ошибка: {str(e)}"
     
     # Универсальные методы
     async def get_keyboard_for_action(self, action: str, subaction: str = "") -> InlineKeyboardMarkup:
@@ -436,9 +451,7 @@ class AdminPanel:
                 
             elif action == "monitoring":
                 if subaction == "health_check":
-                    if self.notification_system:
-                        await self.notification_system.send_bot_health_check()
-                    message = "🏥 *Проверка здоровья бота*\n\n✅ Отчет отправлен главному админу"
+                    message = await self.get_detailed_diagnostics()
                 elif subaction == "performance":
                     if self.notification_system:
                         await self.notification_system.send_bot_performance_report()
@@ -448,6 +461,8 @@ class AdminPanel:
                     message = await self.format_system_stats(stats)
                 elif subaction == "diagnostics":
                     message = await self.get_detailed_diagnostics()
+                elif subaction == "auto_checks":
+                    message = await self.get_health_trends()
                 elif subaction == "status_history":
                     message = await self.get_status_history()
                 else:
@@ -455,12 +470,30 @@ class AdminPanel:
                 keyboard = await self.get_keyboard_for_action("monitoring")
                 
             elif action == "maintenance":
-                if subaction in ["scheduled", "emergency", "update", "backup", "cleanup"]:
-                    message = f"🔧 *Техобслуживание: {subaction}*\n\nПодтвердите выполнение ТО:"
-                    keyboard = get_maintenance_confirmation_keyboard(subaction)
-                    return message, keyboard
+                if subaction == "scheduled":
+                    message = await self.perform_maintenance("scheduled")
+                elif subaction == "emergency":
+                    message = await self.perform_maintenance("emergency")
+                elif subaction == "update":
+                    message = await self.perform_maintenance("update")
+                elif subaction == "backup":
+                    message = await self.create_backup()
+                elif subaction == "cleanup":
+                    message = await self.perform_maintenance("cleanup")
+                elif subaction == "force_restart":
+                    message = await self.force_restart()
+                elif subaction == "emergency_restart":
+                    message = await self.emergency_restart()
+                elif subaction == "backup_stats":
+                    message = await self.get_backup_stats()
+                elif subaction == "restart_stats":
+                    message = await self.get_restart_stats()
+                elif subaction == "list_backups":
+                    message = await self.list_backups()
                 elif subaction == "maintenance_log":
                     message = await self.get_maintenance_log()
+                elif subaction == "pythonanywhere_info":
+                    message = await self.get_pythonanywhere_info()
                 else:
                     message = "🔧 *Техобслуживание*\n\nВыберите тип ТО:"
                 keyboard = await self.get_keyboard_for_action("maintenance")
@@ -536,33 +569,8 @@ class AdminPanel:
     async def get_detailed_diagnostics(self) -> str:
         """Получение детальной диагностики"""
         try:
-            message = "🔍 *Детальная диагностика системы*\n\n"
-            
-            # Проверка базы данных
-            db_status = "✅" if await self.db.is_connected() else "❌"
-            message += f"🗄️ База данных: {db_status}\n"
-            
-            # Проверка таблиц
-            try:
-                total_users = await self.db.get_total_users()
-                message += f"📊 Пользователей в БД: {total_users}\n"
-            except Exception as e:
-                message += f"❌ Ошибка чтения пользователей: {str(e)[:50]}...\n"
-            
-            # Проверка событий
-            try:
-                events = await self.db.get_events(1)
-                message += f"📋 Событий в БД: {'✅' if events else '⚠️'}\n"
-            except Exception as e:
-                message += f"❌ Ошибка чтения событий: {str(e)[:50]}...\n"
-            
-            # Системная информация
-            message += f"\n🖥️ Системная информация:\n"
-            message += f"🕐 Время системы: {datetime.now().strftime('%H:%M:%S')}\n"
-            message += f"📅 Дата: {date.today().strftime('%d.%m.%Y')}\n"
-            message += f"🔧 Версия Python: {'.'.join(map(str, __import__('sys').version_info[:3]))}\n"
-            
-            return message
+            # Используем систему мониторинга здоровья
+            return await self.health_monitor.get_health_report()
             
         except Exception as e:
             logger.error(f"Ошибка детальной диагностики: {e}")
@@ -676,3 +684,184 @@ class AdminPanel:
         except Exception as e:
             logger.error(f"Ошибка получения лога ТО: {e}")
             return f"❌ Ошибка получения лога: {str(e)}"
+    
+    # Новые методы для расширенного мониторинга
+    async def get_health_trends(self) -> str:
+        """Получение трендов здоровья системы"""
+        try:
+            trends = await self.health_monitor.get_health_trends()
+            
+            if 'error' in trends:
+                return f"❌ Ошибка получения трендов: {trends['error']}"
+            
+            trend_emojis = {
+                'stable': '✅',
+                'concerning': '⚠️',
+                'deteriorating': '🚨',
+                'fluctuating': '📊',
+                'insufficient_data': '❓'
+            }
+            
+            emoji = trend_emojis.get(trends['trend'], '❓')
+            
+            message = f"📈 *Тренды здоровья системы*\n\n"
+            message += f"{emoji} Тренд: {trends['trend']}\n"
+            message += f"📊 Проверок проанализировано: {trends['checks_analyzed']}\n"
+            
+            if 'status_distribution' in trends:
+                message += f"\n📋 Распределение статусов:\n"
+                for status, count in trends['status_distribution'].items():
+                    status_emoji = self.health_monitor._get_status_emoji(status)
+                    message += f"  {status_emoji} {status}: {count}\n"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения трендов здоровья: {e}")
+            return f"❌ Ошибка: {str(e)}"
+    
+    async def get_backup_stats(self) -> str:
+        """Получение статистики резервных копий"""
+        try:
+            stats = await self.backup_system.get_backup_stats()
+            
+            if 'error' in stats:
+                return f"❌ Ошибка получения статистики бэкапов: {stats['error']}"
+            
+            message = "💾 *Статистика резервных копий*\n\n"
+            message += f"📊 Всего бэкапов: {stats['total_backups']}\n"
+            message += f"📁 Общий размер: {stats['total_size_formatted']}\n"
+            
+            if stats['oldest_backup']:
+                message += f"📅 Самый старый: {stats['oldest_backup'].strftime('%d.%m.%Y')}\n"
+            if stats['newest_backup']:
+                message += f"📅 Самый новый: {stats['newest_backup'].strftime('%d.%m.%Y')}\n"
+            
+            if stats['backup_types']:
+                message += f"\n📋 По типам:\n"
+                for backup_type, type_stats in stats['backup_types'].items():
+                    size_formatted = self.backup_system.format_backup_size(type_stats['total_size'])
+                    message += f"  • {backup_type}: {type_stats['count']} ({size_formatted})\n"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения статистики бэкапов: {e}")
+            return f"❌ Ошибка: {str(e)}"
+    
+    async def get_restart_stats(self) -> str:
+        """Получение статистики перезапусков"""
+        try:
+            stats = await self.auto_restart.get_restart_stats()
+            
+            if 'error' in stats:
+                return f"❌ Ошибка получения статистики перезапусков: {stats['error']}"
+            
+            message = "🔄 *Статистика перезапусков*\n\n"
+            message += f"📊 Всего перезапусков: {stats['total_restarts']}\n"
+            message += f"📈 Максимум разрешено: {stats['max_restarts']}\n"
+            message += f"📉 Осталось: {stats['restarts_remaining']}\n"
+            message += f"📅 За последние 24ч: {stats['restarts_last_24h']}\n"
+            message += f"✅ Успешных: {stats['successful_restarts']}\n"
+            message += f"❌ Неудачных: {stats['failed_restarts']}\n"
+            
+            if stats['last_restart_time']:
+                message += f"🕐 Последний перезапуск: {stats['last_restart_time'].strftime('%d.%m %H:%M')}\n"
+            
+            # Тренд
+            trend_emojis = {
+                'stable': '✅',
+                'moderate_restart_rate': '⚠️',
+                'high_restart_rate': '🚨',
+                'no_data': '❓'
+            }
+            
+            emoji = trend_emojis.get(stats['trend'], '❓')
+            message += f"\n{emoji} Тренд: {stats['trend']}"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения статистики перезапусков: {e}")
+            return f"❌ Ошибка: {str(e)}"
+    
+    async def force_restart(self) -> str:
+        """Принудительный перезапуск бота"""
+        try:
+            success = await self.auto_restart.force_restart()
+            
+            if success:
+                await self.db.log_event(None, "force_restart", "Выполнен принудительный перезапуск")
+                return "✅ Принудительный перезапуск выполнен успешно"
+            else:
+                return "❌ Ошибка принудительного перезапуска"
+                
+        except Exception as e:
+            logger.error(f"Ошибка принудительного перезапуска: {e}")
+            return f"❌ Ошибка: {str(e)}"
+    
+    async def emergency_restart(self) -> str:
+        """Экстренный перезапуск"""
+        try:
+            success = await self.auto_restart.emergency_restart()
+            
+            if success:
+                await self.db.log_event(None, "emergency_restart", "Выполнен экстренный перезапуск")
+                return "🚨 Экстренный перезапуск выполнен успешно"
+            else:
+                return "❌ Ошибка экстренного перезапуска"
+                
+        except Exception as e:
+            logger.error(f"Ошибка экстренного перезапуска: {e}")
+            return f"❌ Ошибка: {str(e)}"
+    
+    async def list_backups(self) -> str:
+        """Получение списка резервных копий"""
+        try:
+            backups = await self.backup_system.list_backups()
+            
+            if not backups:
+                return "📋 Резервные копии не найдены"
+            
+            message = "📋 *Список резервных копий:*\n\n"
+            
+            for backup in backups[:10]:  # Показываем последние 10
+                timestamp = backup['created'].strftime('%d.%m %H:%M')
+                size_formatted = self.backup_system.format_backup_size(backup['size'])
+                
+                message += f"📁 {backup['name']}\n"
+                message += f"📅 {timestamp}\n"
+                message += f"📊 {size_formatted}\n"
+                message += f"🏷️ {backup['type']}\n"
+                message += "─" * 20 + "\n"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения списка бэкапов: {e}")
+            return f"❌ Ошибка: {str(e)}"
+    
+    async def restore_backup(self, backup_name: str) -> str:
+        """Восстановление из резервной копии"""
+        try:
+            restore_info = await self.backup_system.restore_backup(backup_name)
+            
+            if restore_info['status'] == 'completed':
+                await self.db.log_event(None, "backup_restored", f"Восстановлен бэкап: {backup_name}")
+                return f"✅ Восстановление завершено: {backup_name}"
+            else:
+                return f"❌ Ошибка восстановления: {restore_info.get('error', 'Неизвестная ошибка')}"
+                
+        except Exception as e:
+            logger.error(f"Ошибка восстановления бэкапа: {e}")
+            return f"❌ Ошибка: {str(e)}"
+    
+    async def get_pythonanywhere_info(self) -> str:
+        """Получение информации о PythonAnywhere"""
+        try:
+            info = self.pythonanywhere_support.get_pythonanywhere_info()
+            return self.pythonanywhere_support.format_pythonanywhere_info(info)
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения информации PythonAnywhere: {e}")
+            return f"❌ Ошибка: {str(e)}"

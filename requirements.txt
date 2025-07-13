@@ -27,3 +27,6 @@ configparser==6.0.0
 
 # Расширения типов
 typing_extensions==4.8.0
+
+# Системный мониторинг
+psutil==5.9.6
