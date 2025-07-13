@@ -42,6 +42,8 @@ async def schedule_morning_notifications(app: Application):
         try:
             now = get_current_time()
             target_time = datetime.combine(now.date(), time.fromisoformat(morning_time))
+            # Добавляем часовой пояс к target_time
+            target_time = now.tzinfo.localize(target_time)
             
             # Если время уже прошло, планируем на завтра
             if target_time <= now:
@@ -66,6 +68,8 @@ async def schedule_evening_notifications(app: Application):
         try:
             now = get_current_time()
             target_time = datetime.combine(now.date(), time.fromisoformat(evening_time))
+            # Добавляем часовой пояс к target_time
+            target_time = now.tzinfo.localize(target_time)
             
             # Если время уже прошло, планируем на завтра
             if target_time <= now:

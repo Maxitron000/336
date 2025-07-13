@@ -25,6 +25,9 @@ from utils import is_admin
 # Загружаем переменные окружения
 load_dotenv()
 
+# Создаем директорию для логов если её нет
+os.makedirs('logs', exist_ok=True)
+
 # Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

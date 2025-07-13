@@ -5,10 +5,13 @@
 import os
 import csv
 import logging
+import io
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import pandas as pd
 from io import BytesIO
+import asyncio
+import aiofiles
 
 from database import get_location_logs, get_all_users, get_admin_logs, get_active_users_by_location
 from utils import get_current_time, format_datetime, get_export_path
@@ -75,13 +78,27 @@ async def export_to_csv(logs_data: List[Dict], users_data: List[Dict], export_di
                 'Локация': log['location']
             })
         
-        # Записываем в CSV
-        with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['Дата и время', 'ФИО', 'Telegram ID', 'Действие', 'Локация']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            
-            writer.writeheader()
-            writer.writerows(export_data)
+        # Формируем CSV в памяти
+        output = BytesIO()
+        wrapper = asyncio.get_event_loop().run_in_executor(
+            None, 
+            lambda: csv.DictWriter(output, encoding='utf-8', newline='')
+        )
+        
+        fieldnames = ['Дата и время', 'ФИО', 'Telegram ID', 'Действие', 'Локация']
+        writer = await wrapper
+        
+        writer.writeheader()
+        writer.writerows(export_data)
+        
+        wrapper.flush()
+        csv_content = output.getvalue().decode('utf-8')
+        
+        # Записываем асинхронно
+        await asyncio.get_event_loop().run_in_executor(
+            None, 
+            lambda: open(filepath, 'w', encoding='utf-8').write(csv_content)
+        )
         
         logger.info(f"Экспорт CSV завершен: {filepath}")
         return filepath
@@ -316,7 +333,7 @@ async def export_admin_logs(format_type: str) -> Optional[str]:
         if format_type == "csv":
             filepath = os.path.join(export_dir, f"{filename}.csv")
             
-            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+            async with aiofiles.open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
                 fieldnames = ['Дата и время', 'Администратор', 'Действие', 'Цель', 'Детали']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 
@@ -393,7 +410,7 @@ async def export_users_data(format_type: str) -> Optional[str]:
         if format_type == "csv":
             filepath = os.path.join(export_dir, f"{filename}.csv")
             
-            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+            async with aiofiles.open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
                 fieldnames = ['ФИО', 'Telegram ID', 'Username', 'Администратор', 'Текущая локация', 'Дата регистрации', 'Последняя активность']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 
