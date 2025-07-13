@@ -83,5 +83,6 @@ class Config:
                 json.dump(texts, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
-            print(f"Ошибка сохранения текстов уведомлений: {e}")
+            import logging
+            logging.error(f"Ошибка сохранения текстов уведомлений: {e}")
             return False

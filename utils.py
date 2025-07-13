@@ -31,7 +31,8 @@ if admin_ids_str:
     try:
         ADMIN_IDS = [int(admin_id.strip()) for admin_id in admin_ids_str.split(',') if admin_id.strip()]
     except ValueError:
-        print("⚠️ Ошибка в формате ADMIN_IDS")
+        import logging
+        logging.warning("⚠️ Ошибка в формате ADMIN_IDS")
 
 def get_timezone():
     """Получение часового пояса из переменных окружения"""
@@ -39,7 +40,8 @@ def get_timezone():
     try:
         return pytz.timezone(tz_name)
     except pytz.UnknownTimeZoneError:
-        print(f"⚠️ Неизвестный часовой пояс: {tz_name}, используется UTC")
+        import logging
+        logging.warning(f"⚠️ Неизвестный часовой пояс: {tz_name}, используется UTC")
         return pytz.UTC
 
 def get_current_time():

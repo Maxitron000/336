@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
 Telegram Bot для отслеживания прибытия/убытия персонала
-Главный файл для запуска бота
+Главный файл для запуска бота на aiogram
 """
 
 import asyncio
 import logging
-import json
 import os
-from datetime import datetime, time
+from datetime import datetime
 from aiogram import Bot, Dispatcher, types, executor
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
@@ -17,7 +16,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ParseMode
 from aiogram.utils.exceptions import TelegramAPIError
 import aioschedule
 import threading
-import time as time_module
+import time
 
 # Импорт модулей
 from handlers import register_handlers
@@ -32,7 +31,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('bot.log'),
+        logging.FileHandler('logs/bot.log'),
         logging.StreamHandler()
     ]
 )
@@ -50,9 +49,7 @@ admin_panel = AdminPanel(db, notification_system)
 # Состояния FSM
 class UserStates(StatesGroup):
     waiting_for_name = State()
-    waiting_for_admin_action = State()
-    waiting_for_personnel_action = State()
-    waiting_for_settings_action = State()
+    waiting_for_location = State()
     waiting_for_confirmation = State()
 
 # Глобальные переменные для управления ботом
@@ -64,6 +61,11 @@ async def on_startup(dp):
     logger.info("🚀 Бот запускается...")
     
     try:
+        # Создаем папки если не существуют
+        os.makedirs('logs', exist_ok=True)
+        os.makedirs('data', exist_ok=True)
+        os.makedirs('exports', exist_ok=True)
+        
         # Инициализация базы данных
         await db.init()
         
@@ -75,21 +77,10 @@ async def on_startup(dp):
         schedule_thread = threading.Thread(target=run_scheduler, daemon=True)
         schedule_thread.start()
         
-        # Отправляем уведомление о запуске главному админу
-        await notification_system.send_bot_status_notification(
-            "started", 
-            "Бот успешно запущен и готов к работе"
-        )
-        
         logger.info("✅ Бот успешно запущен!")
         
     except Exception as e:
         logger.error(f"❌ Ошибка запуска бота: {e}")
-        # Отправляем уведомление об ошибке
-        await notification_system.send_bot_error_notification(
-            str(e), 
-            "Ошибка при запуске бота"
-        )
         raise
 
 async def on_shutdown(dp):
@@ -99,12 +90,6 @@ async def on_shutdown(dp):
     bot_running = False
     
     try:
-        # Отправляем уведомление об остановке главному админу
-        await notification_system.send_bot_status_notification(
-            "stopped", 
-            "Бот остановлен"
-        )
-        
         # Закрытие соединений
         await bot.close()
         await storage.close()
@@ -124,15 +109,9 @@ def run_scheduler():
     aioschedule.every().day.at("19:00").do(lambda: loop.create_task(send_daily_summary()))
     aioschedule.every().day.at("20:30").do(lambda: loop.create_task(send_reminders()))
     
-    # Ежедневная проверка здоровья бота в 09:00
-    aioschedule.every().day.at("09:00").do(lambda: loop.create_task(send_health_check()))
-    
-    # Еженедельный отчет о производительности по воскресеньям в 10:00
-    aioschedule.every().sunday.at("10:00").do(lambda: loop.create_task(send_performance_report()))
-    
     while bot_running:
         aioschedule.run_pending()
-        time_module.sleep(60)  # Проверка каждую минуту
+        time.sleep(60)  # Проверка каждую минуту
 
 async def send_daily_summary():
     """Отправка ежедневной сводки в 19:00"""
@@ -150,26 +129,11 @@ async def send_reminders():
     except Exception as e:
         logger.error(f"❌ Ошибка отправки напоминаний: {e}")
 
-async def send_health_check():
-    """Отправка проверки здоровья бота в 09:00"""
-    try:
-        logger.info("🏥 Отправка проверки здоровья бота...")
-        await notification_system.send_bot_health_check()
-    except Exception as e:
-        logger.error(f"❌ Ошибка отправки проверки здоровья: {e}")
-
-async def send_performance_report():
-    """Отправка отчета о производительности по воскресеньям"""
-    try:
-        logger.info("📈 Отправка отчета о производительности...")
-        await notification_system.send_bot_performance_report()
-    except Exception as e:
-        logger.error(f"❌ Ошибка отправки отчета о производительности: {e}")
-
 @dp.message_handler(commands=['start'])
 async def start_command(message: types.Message):
     """Обработчик команды /start"""
     user_id = message.from_user.id
+    user_name = message.from_user.first_name
     
     # Удаляем сообщение с командой для чистоты чата
     try:
@@ -183,16 +147,18 @@ async def start_command(message: types.Message):
     if is_admin:
         # Показываем админ-панель
         await message.answer(
-            "🏠 *Главное меню админ-панели*\n\n"
-            "Выберите нужный раздел:",
+            f"🏠 *Главное меню админ-панели*\n\n"
+            f"Добро пожаловать, {user_name}!\n"
+            f"Выберите нужный раздел:",
             reply_markup=get_admin_keyboard(),
             parse_mode=ParseMode.MARKDOWN
         )
     else:
         # Показываем обычное меню
         await message.answer(
-            "👋 *Добро пожаловать в систему учета личного состава!*\n\n"
-            "Выберите действие:",
+            f"👋 *Добро пожаловать в систему учета личного состава!*\n\n"
+            f"Привет, {user_name}!\n"
+            f"Выберите действие:",
             reply_markup=get_main_keyboard(),
             parse_mode=ParseMode.MARKDOWN
         )
@@ -207,9 +173,6 @@ async def help_command(message: types.Message):
         "🔹 `/status` - Статус системы\n\n"
         "💡 *Для админов:*\n"
         "🔹 `/admin` - Админ-панель\n"
-        "🔹 `/health` - Проверка здоровья бота\n"
-        "🔹 `/performance` - Отчет о производительности\n"
-        "🔹 `/maintenance [тип] [длительность]` - Уведомление о ТО\n"
         "🔹 `/export` - Экспорт данных\n"
         "🔹 `/backup` - Резервная копия"
     )
@@ -252,57 +215,21 @@ async def admin_command(message: types.Message):
             reply_markup=get_admin_keyboard(),
             parse_mode=ParseMode.MARKDOWN
         )
-
-@dp.message_handler(commands=['health'])
-async def health_command(message: types.Message):
-    """Обработчик команды /health - проверка здоровья бота"""
-    user_id = message.from_user.id
-    
-    if await admin_panel.is_admin(user_id):
-        await notification_system.send_bot_health_check()
-        await message.answer("🏥 Отчет о здоровье бота отправлен главному админу")
-
-@dp.message_handler(commands=['performance'])
-async def performance_command(message: types.Message):
-    """Обработчик команды /performance - отчет о производительности"""
-    user_id = message.from_user.id
-    
-    if await admin_panel.is_admin(user_id):
-        await notification_system.send_bot_performance_report()
-        await message.answer("📈 Отчет о производительности отправлен главному админу")
-
-@dp.message_handler(commands=['maintenance'])
-async def maintenance_command(message: types.Message):
-    """Обработчик команды /maintenance - уведомление о ТО"""
-    user_id = message.from_user.id
-    
-    if await admin_panel.is_admin(user_id):
-        # Парсим аргументы команды
-        args = message.get_args().split()
-        maintenance_type = args[0] if args else "scheduled"
-        duration = args[1] if len(args) > 1 else "30 минут"
-        
-        await notification_system.send_bot_maintenance_notification(maintenance_type, duration)
-        await message.answer(f"🔧 Уведомление о ТО ({maintenance_type}) отправлено главному админу")
     else:
-        await message.answer("❌ У вас нет доступа к админ-панели")
+        await message.answer("❌ У вас нет прав администратора")
 
-# Обработчик ошибок
 @dp.errors_handler()
 async def errors_handler(update, exception):
     """Обработчик ошибок"""
     logger.error(f"Ошибка при обработке {update}: {exception}")
     
-    # Отправляем уведомление об ошибке главному админу
     try:
-        await notification_system.send_bot_error_notification(
-            str(exception),
-            f"Ошибка при обработке {type(update).__name__}"
-        )
-    except Exception as e:
-        logger.error(f"Не удалось отправить уведомление об ошибке: {e}")
-    
-    return True
+        if update.message:
+            await update.message.answer(
+                "❌ Произошла ошибка при обработке запроса. Попробуйте позже."
+            )
+    except:
+        pass
 
 if __name__ == '__main__':
     try:
@@ -314,8 +241,6 @@ if __name__ == '__main__':
             skip_updates=True
         )
     except KeyboardInterrupt:
-        logger.info("🛑 Получен сигнал остановки")
+        logger.info("🛑 Бот остановлен пользователем")
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {e}")
-    finally:
-        logger.info("✅ Бот завершил работу")
+        logger.error(f"💥 Критическая ошибка: {e}")

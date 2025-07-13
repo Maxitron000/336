@@ -1,118 +1,29 @@
-# Основные зависимости
-python-telegram-bot==20.7
+# Основные зависимости для Telegram бота на aiogram
+aiogram==2.25.1
 python-dotenv==1.0.0
 
-# База данных
-sqlite3
+# Планировщик задач
+aioschedule==0.5.2
+
+# Работа с временными зонами
+pytz==2023.3
+
+# Асинхронная работа с SQLite
+aiosqlite==0.19.0
 
 # Работа с данными
 pandas==2.1.4
 openpyxl==3.1.2
 xlsxwriter==3.1.9
 
-# Логирование и мониторинг
-logging
-datetime
-asyncio
+# Генерация PDF отчетов
+reportlab==4.0.4
 
-# Утилиты
-json
-os
-sys
-pathlib
-typing
-functools
-
-# Для работы с файлами
-shutil
-tempfile
-
-# Для работы с регулярными выражениями
-re
-
-# Для работы с коллекциями
-collections
-itertools
-
-# Для работы с математическими операциями
-math
-statistics
-
-# Для работы с временными зонами
-pytz==2023.3
-
-# Для работы с HTTP запросами (если понадобится)
+# HTTP запросы
 requests==2.31.0
 
-# Для работы с конфигурацией
+# Конфигурация
 configparser==6.0.0
 
-# Для работы с аргументами командной строки
-argparse
-
-# Для работы с многопоточностью
-threading
-concurrent.futures
-
-# Для работы с сигналами
-signal
-
-# Для работы с процессами
-subprocess
-
-# Для работы с сокетами
-socket
-
-# Для работы с URL
-urllib.parse
-
-# Для работы с кодировками
-codecs
-
-# Для работы с pickle
-pickle
-
-# Для работы с base64
-base64
-
-# Для работы с hashlib
-hashlib
-
-# Для работы с uuid
-uuid
-
-# Для работы с time
-time
-
-# Для работы с calendar
-calendar
-
-# Для работы с locale
-locale
-
-# Для работы с gettext
-gettext
-
-# Для работы с inspect
-inspect
-
-# Для работы с traceback
-traceback
-
-# Для работы с warnings
-warnings
-
-# Для работы с weakref
-weakref
-
-# Для работы с abc
-abc
-
-# Для работы с enum
-enum
-
-# Для работы с dataclasses
-dataclasses
-
-# Для работы с typing_extensions
+# Расширения типов
 typing_extensions==4.8.0
