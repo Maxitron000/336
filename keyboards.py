@@ -71,6 +71,15 @@ def admin_back_keyboard():
         [InlineKeyboardButton("🔙 Назад", callback_data='admin_back')]
     ])
 
+def admin_logs_keyboard():
+    """Клавиатура для журналов с фильтрами"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 Фильтр по фамилии", callback_data='logs_filter_name')],
+        [InlineKeyboardButton("📅 Фильтр по дате", callback_data='logs_filter_date')],
+        [InlineKeyboardButton("📜 Показать все", callback_data='logs_show_all')],
+        [InlineKeyboardButton("🔙 Назад", callback_data='admin_back')]
+    ])
+
 def admin_export_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📄 CSV", callback_data='export_csv')],

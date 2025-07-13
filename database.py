@@ -239,3 +239,61 @@ def clear_logs():
 
     conn.commit()
     conn.close()
+
+def get_logs_by_name_filter(name_filter, limit=50):
+    """Получает логи, отфильтрованные по фамилии/имени"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT l.id, l.action, l.location, l.comment, l.timestamp, u.full_name 
+        FROM logs l
+        JOIN users u ON l.user_id = u.id
+        WHERE u.full_name LIKE ?
+        ORDER BY l.timestamp DESC
+        LIMIT ?
+    """, (f'%{name_filter}%', limit))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [
+        {
+            'id': row[0],
+            'action': row[1],
+            'location': row[2],
+            'comment': row[3],
+            'timestamp': row[4],
+            'full_name': row[5]
+        }
+        for row in rows
+    ]
+
+def get_logs_by_date(date_str, limit=50):
+    """Получает логи за определенную дату"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT l.id, l.action, l.location, l.comment, l.timestamp, u.full_name 
+        FROM logs l
+        JOIN users u ON l.user_id = u.id
+        WHERE DATE(l.timestamp) = ?
+        ORDER BY l.timestamp DESC
+        LIMIT ?
+    """, (date_str, limit))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    return [
+        {
+            'id': row[0],
+            'action': row[1],
+            'location': row[2],
+            'comment': row[3],
+            'timestamp': row[4],
+            'full_name': row[5]
+        }
+        for row in rows
+    ]

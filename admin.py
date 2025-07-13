@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
-from database import get_all_users, get_all_logs, clear_logs, get_daily_stats
+from database import get_all_users, get_all_logs, clear_logs, get_daily_stats, get_logs_by_name_filter, get_logs_by_date
 from keyboards import (
     admin_menu_keyboard,
     admin_export_keyboard,
@@ -9,7 +9,8 @@ from keyboards import (
     confirm_danger_keyboard,
     double_confirm_danger_keyboard,
     admin_manage_users_keyboard,
-    admin_back_keyboard
+    admin_back_keyboard,
+    admin_logs_keyboard
 )
 from utils import format_datetime, get_today_date, is_action_allowed, get_current_time
 from export import export_to_csv, export_to_excel, export_to_pdf
@@ -58,6 +59,18 @@ def handle_admin_callback(update: Update, context: CallbackContext):
         )
 
     elif data == 'admin_logs':
+        query.edit_message_text(
+            "📜 **ЖУРНАЛ ДЕЙСТВИЙ**\n\n"
+            "🔍 Выберите способ просмотра:\n"
+            "📋 Фильтр по фамилии - поиск конкретного сотрудника\n"
+            "📅 Фильтр по дате - записи за определенный день\n"
+            "📜 Показать все - последние 10 записей\n\n"
+            "⚡ Выберите действие:",
+            reply_markup=admin_logs_keyboard(),
+            parse_mode='Markdown'
+        )
+
+    elif data == 'logs_show_all':
         logs = get_all_logs()[:10]
         if not logs:
             query.edit_message_text(
@@ -65,7 +78,7 @@ def handle_admin_callback(update: Update, context: CallbackContext):
                 "🔍 В журнале пока нет записей\n"
                 "📝 Записи появятся после действий пользователей\n"
                 "⏰ Система готова к работе",
-                reply_markup=admin_back_keyboard(),
+                reply_markup=admin_logs_keyboard(),
                 parse_mode='Markdown'
             )
             return
@@ -73,8 +86,8 @@ def handle_admin_callback(update: Update, context: CallbackContext):
         log_text = "📜 **ЖУРНАЛ ДЕЙСТВИЙ** (последние 10)\n\n"
         
         for i, log in enumerate(logs, 1):
-            # Определяем эмодзи для действий
-            action_emoji = "🏠" if log['action'] == "Прибыл" else "🚶‍♂️"
+            # Определяем эмодзи для действий - красный/зеленый кружок
+            action_emoji = "🟢" if log['action'] == "Прибыл" else "🔴"
             
             # Эмодзи для локаций
             location_emoji = ""
@@ -107,7 +120,29 @@ def handle_admin_callback(update: Update, context: CallbackContext):
 
         query.edit_message_text(
             log_text,
-            reply_markup=admin_back_keyboard(),
+            reply_markup=admin_logs_keyboard(),
+            parse_mode='Markdown'
+        )
+
+    elif data == 'logs_filter_name':
+        context.user_data['awaiting_filter'] = 'name'
+        query.edit_message_text(
+            "🔍 **ФИЛЬТР ПО ФАМИЛИИ**\n\n"
+            "📝 Введите фамилию или часть фамилии для поиска:\n"
+            "Например: Иванов, Петр, Сид\n\n"
+            "⚠️ Следующим сообщением отправьте текст для поиска",
+            reply_markup=admin_logs_keyboard(),
+            parse_mode='Markdown'
+        )
+
+    elif data == 'logs_filter_date':
+        context.user_data['awaiting_filter'] = 'date'
+        query.edit_message_text(
+            "📅 **ФИЛЬТР ПО ДАТЕ**\n\n"
+            "📝 Введите дату в формате ДД.ММ.ГГГГ:\n"
+            "Например: 13.01.2024\n\n"
+            "⚠️ Следующим сообщением отправьте дату",
+            reply_markup=admin_logs_keyboard(),
             parse_mode='Markdown'
         )
 
@@ -308,47 +343,99 @@ def handle_admin_callback(update: Update, context: CallbackContext):
             parse_mode='Markdown'
         )
 
-    elif data == 'danger_clear_logs':
+    elif data.startswith('danger_clear_'):
+        if data == 'danger_clear_today':
+            period = 'today'
+            period_text = "ЗА СЕГОДНЯ"
+            description = "записи только за сегодняшний день"
+        elif data == 'danger_clear_week':
+            period = 'week'
+            period_text = "ЗА НЕДЕЛЮ"
+            description = "записи за последние 7 дней"
+        elif data == 'danger_clear_month':
+            period = 'month'
+            period_text = "ЗА МЕСЯЦ"
+            description = "записи за последние 30 дней"
+        elif data == 'danger_clear_logs':
+            period = 'all'
+            period_text = "ПОЛНАЯ ОЧИСТКА"
+            description = "ВСЕ записи в журнале"
+        else:
+            return
+        
         query.edit_message_text(
-            "⚠️ **ВНИМАНИЕ! КРИТИЧЕСКОЕ ДЕЙСТВИЕ!**\n\n"
-            "🗑️ Вы хотите очистить весь журнал действий?\n"
-            "❌ Все записи будут удалены БЕЗВОЗВРАТНО!\n"
-            "📊 Восстановление будет невозможно!\n"
-            "🔒 Это действие логируется!\n\n"
-            "⚠️ Подтвердите первый шаг:",
-            reply_markup=confirm_danger_keyboard('clear_logs'),
+            f"⚠️ **ВНИМАНИЕ! ОЧИСТКА {period_text}!**\n\n"
+            f"🗑️ Будут удалены: {description}\n"
+            f"❌ Восстановление будет невозможно!\n"
+            f"🔒 Это действие логируется!\n\n"
+            f"⚠️ Подтвердите действие:",
+            reply_markup=confirm_danger_keyboard(f'clear_{period}'),
             parse_mode='Markdown'
         )
 
-    elif data == 'confirm_clear_logs':
+    elif data.startswith('confirm_clear_'):
+        if data == 'confirm_clear_today':
+            period = 'today'
+            period_text = "ЗА СЕГОДНЯ"
+            action_text = "УДАЛИТЬ записи за сегодня"
+        elif data == 'confirm_clear_week':
+            period = 'week'
+            period_text = "ЗА НЕДЕЛЮ"
+            action_text = "УДАЛИТЬ записи за неделю"
+        elif data == 'confirm_clear_month':
+            period = 'month'
+            period_text = "ЗА МЕСЯЦ"
+            action_text = "УДАЛИТЬ записи за месяц"
+        elif data == 'confirm_clear_logs':
+            period = 'all'
+            period_text = "ПОЛНОСТЬЮ"
+            action_text = "УДАЛИТЬ ВСЕ записи"
+        else:
+            return
+            
         query.edit_message_text(
-            "🚨 **ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ!**\n\n"
-            "💥 Вы ТОЧНО хотите УДАЛИТЬ ВСЕ записи?\n"
-            "🗑️ Журнал будет полностью очищен!\n"
-            "⏰ Вся история действий исчезнет!\n"
-            "📋 Все отчеты станут недоступны!\n\n"
-            "🔥 **ДЕЙСТВИЕ НЕОБРАТИМО!**",
-            reply_markup=double_confirm_danger_keyboard('clear_logs'),
+            f"🚨 **ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ!**\n\n"
+            f"💥 Вы ТОЧНО хотите {action_text}?\n"
+            f"🗑️ Очистка журнала {period_text}!\n"
+            f"⏰ Восстановление невозможно!\n"
+            f"📋 Данные исчезнут навсегда!\n\n"
+            f"🔥 **ДЕЙСТВИЕ НЕОБРАТИМО!**",
+            reply_markup=double_confirm_danger_keyboard(f'clear_{period}'),
             parse_mode='Markdown'
         )
 
-    elif data == 'execute_clear_logs':
+    elif data.startswith('execute_clear_'):
         try:
-            clear_logs()
+            if data == 'execute_clear_today':
+                deleted_count = clear_logs_by_period('today')
+                period_text = "ЗА СЕГОДНЯ"
+                action_text = "записи за сегодня"
+            elif data == 'execute_clear_week':
+                deleted_count = clear_logs_by_period('week')
+                period_text = "ЗА НЕДЕЛЮ"
+                action_text = "записи за неделю"
+            elif data == 'execute_clear_month':
+                deleted_count = clear_logs_by_period('month')
+                period_text = "ЗА МЕСЯЦ"
+                action_text = "записи за месяц"
+            elif data == 'execute_clear_all' or data == 'execute_clear_logs':
+                clear_logs()
+                deleted_count = "все"
+                period_text = "ПОЛНОСТЬЮ"
+                action_text = "все записи"
+            else:
+                return
             
             # Логируем критическое действие
             import logging
-            logging.warning(f"CRITICAL: Journal cleared by admin {user.id} ({user.full_name})")
+            logging.warning(f"CRITICAL: Journal cleared ({action_text}) by admin {user.id} ({user.full_name})")
             
             query.edit_message_text(
-                "✅ **ЖУРНАЛ ПОЛНОСТЬЮ ОЧИЩЕН!**\n\n"
-                "🗑️ Все записи удалены\n"
-                "⏰ Время очистки: {}\n"
-                "👤 Выполнил: {}\n"
-                "🔒 Действие зафиксировано в логах".format(
-                    format_datetime(get_current_time()),
-                    user.full_name
-                ),
+                f"✅ **ЖУРНАЛ ОЧИЩЕН {period_text}!**\n\n"
+                f"🗑️ Удалено: {deleted_count} записей\n"
+                f"⏰ Время очистки: {format_datetime(get_current_time())}\n"
+                f"👤 Выполнил: {user.full_name}\n"
+                f"🔒 Действие зафиксировано в логах",
                 reply_markup=admin_back_keyboard(),
                 parse_mode='Markdown'
             )

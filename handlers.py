@@ -76,6 +76,126 @@ def text_handler(update: Update, context: CallbackContext):
         context.user_data.pop('location', None)
         return
 
+    # Обработка фильтров для админов
+    if context.user_data.get('awaiting_filter'):
+        filter_type = context.user_data.get('awaiting_filter')
+        
+        if filter_type == 'name':
+            # Фильтр по фамилии
+            from database import get_logs_by_name_filter
+            from keyboards import admin_logs_keyboard
+            
+            logs = get_logs_by_name_filter(text)
+            if not logs:
+                update.message.reply_text(
+                    f"📜 **РЕЗУЛЬТАТЫ ПОИСКА**\n\n"
+                    f"🔍 По запросу '{text}' ничего не найдено\n"
+                    f"💡 Попробуйте другое написание или часть фамилии",
+                    reply_markup=admin_logs_keyboard(),
+                    parse_mode='Markdown'
+                )
+            else:
+                log_text = f"📜 **РЕЗУЛЬТАТЫ ПОИСКА** по '{text}'\n\n"
+                
+                for i, log in enumerate(logs[:10], 1):
+                    action_emoji = "🟢" if log['action'] == "Прибыл" else "🔴"
+                    
+                    location_emoji = ""
+                    if log['location']:
+                        location_map = {
+                            "Поликлиника": "🏥", "ОБРМП": "⚓", "Калининград": "🌆",
+                            "Магазин": "🛒", "Столовая": "🍲", "Госпиталь": "🏨",
+                            "Рабочка": "⚙️", "ВВК": "🩺", "МФЦ": "🏛️",
+                            "Патруль": "🚓", "В расположение": "🏠"
+                        }
+                        location_emoji = location_map.get(log['location'], "📍")
+                    
+                    log_text += f"{i}. {action_emoji} **{log['full_name']}** - {log['action']}\n"
+                    log_text += f"   ⏰ {format_datetime(log['timestamp'])}\n"
+                    if log['location']:
+                        log_text += f"   📍 {location_emoji} {log['location']}\n"
+                    if log['comment']:
+                        log_text += f"   💬 {log['comment']}\n"
+                    log_text += "\n"
+                
+                update.message.reply_text(
+                    log_text,
+                    reply_markup=admin_logs_keyboard(),
+                    parse_mode='Markdown'
+                )
+        
+        elif filter_type == 'date':
+            # Фильтр по дате
+            from database import get_logs_by_date
+            from keyboards import admin_logs_keyboard
+            import re
+            
+            # Проверяем формат даты ДД.ММ.ГГГГ
+            if re.match(r'^\d{2}\.\d{2}\.\d{4}$', text):
+                try:
+                    # Преобразуем в формат ГГГГ-ММ-ДД для базы данных
+                    day, month, year = text.split('.')
+                    date_str = f"{year}-{month}-{day}"
+                    
+                    logs = get_logs_by_date(date_str)
+                    if not logs:
+                        update.message.reply_text(
+                            f"📜 **РЕЗУЛЬТАТЫ ПОИСКА**\n\n"
+                            f"📅 За {text} записей не найдено\n"
+                            f"💡 В этот день не было активности",
+                            reply_markup=admin_logs_keyboard(),
+                            parse_mode='Markdown'
+                        )
+                    else:
+                        log_text = f"📜 **ЗАПИСИ ЗА {text}**\n\n"
+                        
+                        for i, log in enumerate(logs, 1):
+                            action_emoji = "🟢" if log['action'] == "Прибыл" else "🔴"
+                            
+                            location_emoji = ""
+                            if log['location']:
+                                location_map = {
+                                    "Поликлиника": "🏥", "ОБРМП": "⚓", "Калининград": "🌆",
+                                    "Магазин": "🛒", "Столовая": "🍲", "Госпиталь": "🏨",
+                                    "Рабочка": "⚙️", "ВВК": "🩺", "МФЦ": "🏛️",
+                                    "Патруль": "🚓", "В расположение": "🏠"
+                                }
+                                location_emoji = location_map.get(log['location'], "📍")
+                            
+                            log_text += f"{i}. {action_emoji} **{log['full_name']}** - {log['action']}\n"
+                            log_text += f"   ⏰ {format_datetime(log['timestamp'])}\n"
+                            if log['location']:
+                                log_text += f"   📍 {location_emoji} {log['location']}\n"
+                            if log['comment']:
+                                log_text += f"   💬 {log['comment']}\n"
+                            log_text += "\n"
+                        
+                        update.message.reply_text(
+                            log_text,
+                            reply_markup=admin_logs_keyboard(),
+                            parse_mode='Markdown'
+                        )
+                except:
+                    update.message.reply_text(
+                        "❌ **ОШИБКА ДАТЫ**\n\n"
+                        "📅 Неверная дата!\n"
+                        "📝 Используйте формат: ДД.ММ.ГГГГ\n"
+                        "💡 Например: 13.01.2024",
+                        reply_markup=admin_logs_keyboard(),
+                        parse_mode='Markdown'
+                    )
+            else:
+                update.message.reply_text(
+                    "❌ **НЕВЕРНЫЙ ФОРМАТ ДАТЫ**\n\n"
+                    "📅 Используйте формат: ДД.ММ.ГГГГ\n"
+                    "💡 Например: 13.01.2024",
+                    reply_markup=admin_logs_keyboard(),
+                    parse_mode='Markdown'
+                )
+        
+        context.user_data.pop('awaiting_filter', None)
+        return
+
     if validate_full_name(text):
         if register_user(user.id, text):
             update.message.reply_text(
