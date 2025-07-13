@@ -1093,7 +1093,7 @@ async def main():
     scheduler_thread.start()
     
     logger.info("🚀 Бот запущен (оптимизированная версия)")
-    print("🚀 Бот запущен и готов к работе! 🎉")
+    logger.info("🚀 Бот запущен и готов к работе! 🎉")
     
     # Запускаем бота
     await app.run_polling(allowed_updates=Update.ALL_TYPES)
