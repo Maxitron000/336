@@ -37,7 +37,7 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_IDS = [int(x) for x in os.getenv('ADMIN_IDS', '').split(',') if x]
 MAIN_ADMIN_ID = ADMIN_IDS[0] if ADMIN_IDS else None  # Главный админ - первый в списке
 
-# 📍 Локации с эмодзи
+# 📍 Локации с эмодзи (военная тематика)
 LOCATIONS = {
     "🏥 Поликлиника": "Поликлиника",
     "⚓ ОБРМП": "ОБРМП", 
@@ -48,8 +48,66 @@ LOCATIONS = {
     "⚙️ Рабочка": "Рабочка",
     "🩺 ВВК": "ВВК",
     "🏛️ МФЦ": "МФЦ",
-    "🚔 Патруль": "Патруль"
+    "🚔 Патруль": "Патруль",
+    "📝 Другое": "Другое"
 }
+
+# 🟢 Локации "в расположении"
+IN_BASE_LOCATIONS = ["ОБРМП", "Рабочка", "Столовая"]
+
+# 💬 Шуточные уведомления для не отметившихся (50 фраз)
+FUNNY_REMINDERS = [
+    "Бро, где ты? 🤔 Отметься, а то думаем ты в плену! 😄",
+    "Товарищ, связь потеряна! 📡 Дай сигнал о своем местонахождении! 🚨",
+    "Эй, боец! 🪖 Система показывает, что ты где-то в поле! Отметься! 📍",
+    "Братан, ты случайно не заблудился? 🧭 Нажми кнопку 'Прибыл'! ✅",
+    "Товарищ майор интересуется твоим местоположением! 🎖️ Отметься срочно! ⚡",
+    "Бро, ты же обещал вернуться! 🤝 Где отметка о прибытии? 📋",
+    "Эй, странник! 🚶‍♂️ Пора домой, отметься в системе! 🏠",
+    "Товарищ, ты не на секретном задании? 🕵️ Тогда отметься! 📝",
+    "Бро, GPS тебя потерял! 🛰️ Помоги системе найти тебя! 🔍",
+    "Эй, призрак! 👻 Материализуйся и отметься! ✨",
+    "Товарищ, ты в другом измерении? 🌌 Вернись и отметься! 🌍",
+    "Бро, связь прервана! 📞 Восстанови контакт - отметься! 🔗",
+    "Эй, партизан! 🌲 Выходи из леса и отметься! 🌳",
+    "Товарищ, ты случайно не в отпуске? 🏖️ Если нет - отметься! 📅",
+    "Бро, система глючит или ты пропал? 🤖 Отметься для проверки! ✔️",
+    "Эй, невидимка! 🫥 Стань видимым - отметься! 👁️",
+    "Товарищ, ты не застрял в лифте? 🛗 Отметься, если выбрался! 🚪",
+    "Бро, ты забыл пароль от кнопки? 🔐 Напомню: просто нажми! 👆",
+    "Эй, путешественник! 🗺️ Закончи путешествие - отметься! 🎯",
+    "Товарищ, ты изучаешь город? 🏙️ Изучил - отметься! 📖",
+    "Бро, ты не заснул где-то? 😴 Проснись и отметься! ⏰",
+    "Эй, исследователь! 🔬 Завершай исследование - отметься! 🧪",
+    "Товарищ, ты в командировке? 💼 Если вернулся - отметься! ✈️",
+    "Бро, ты не стал туристом? 📷 Хватит фотографировать - отметься! 🎭",
+    "Эй, философ! 🤔 Закончи размышления - отметься! 💭",
+    "Товарищ, ты медитируешь? 🧘‍♂️ Просветлись - отметься! 🌟",
+    "Бро, ты играешь в прятки? 🙈 Игра окончена - отметься! 🎮",
+    "Эй, детектив! 🕵️ Дело раскрыто - отметься! 🔍",
+    "Товарищ, ты пишешь мемуары? 📝 Глава закончена - отметься! 📚",
+    "Бро, ты на диете? 🥗 Покушал - отметься! 🍽️",
+    "Эй, спортсмен! 🏃‍♂️ Пробежка закончена - отметься! 🏁",
+    "Товарищ, ты занимаешься йогой? 🧘 Намасте - отметься! 🙏",
+    "Бро, ты стал шопоголиком? 🛍️ Покупки сделаны - отметься! 💳",
+    "Эй, гурман! 👨‍🍳 Дегустация окончена - отметься! 🍴",
+    "Товарищ, ты изучаешь архитектуру? 🏛️ Достаточно - отметься! 📐",
+    "Бро, ты стал фотографом? 📸 Фотосессия окончена - отметься! 🎬",
+    "Эй, метеоролог! 🌤️ Погоду изучил - отметься! 🌡️",
+    "Товарищ, ты читаешь книгу? 📖 Страница перевернута - отметься! 📄",
+    "Бро, ты стал художником? 🎨 Шедевр создан - отметься! 🖼️",
+    "Эй, музыкант! 🎵 Концерт окончен - отметься! 🎪",
+    "Товарищ, ты танцуешь? 💃 Танец закончен - отметься! 🕺",
+    "Бро, ты стал актером? 🎭 Спектакль окончен - отметься! 🎪",
+    "Эй, ученый! 👨‍🔬 Эксперимент завершен - отметься! ⚗️",
+    "Товарищ, ты изобретаешь? 💡 Изобретение готово - отметься! 🔧",
+    "Бро, ты стал поваром? 👨‍🍳 Блюдо готово - отметься! 🍳",
+    "Эй, садовник! 🌱 Цветы политы - отметься! 🌺",
+    "Товарищ, ты рыбачишь? 🎣 Улов хороший - отметься! 🐟",
+    "Бро, ты стал пилотом? ✈️ Посадка выполнена - отметься! 🛬",
+    "Эй, космонавт! 🚀 Миссия выполнена - отметься! 🛸",
+    "Товарищ, напоминаю: нажать кнопку проще, чем объяснять где был! 😅"
+]
 
 # 👑 Права админов
 ADMIN_PERMISSIONS = {
@@ -60,7 +118,18 @@ ADMIN_PERMISSIONS = {
     'view_statistics': 'Просмотр статистики',
     'manage_locations': 'Управление локациями',
     'manage_admins': 'Управление админами',
-    'system_settings': 'Системные настройки'
+    'system_settings': 'Системные настройки',
+    'notification_settings': 'Настройки уведомлений'
+}
+
+# ⚙️ Настройки уведомлений
+NOTIFICATION_SETTINGS = {
+    'summary_time': '19:00',  # Время сводки админам
+    'reminder_time': '20:30',  # Время напоминания не отметившимся
+    'summary_enabled': True,
+    'reminder_enabled': True,
+    'admin_summary': True,
+    'funny_reminders': True
 }
 
 # === БАЗА ДАННЫХ ===
@@ -88,6 +157,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
             location TEXT,
+            custom_location TEXT,
             status TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (user_id)
@@ -269,6 +339,68 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Такое ФИО уже зарегистрировано!")
         finally:
             conn.close()
+            
+    # Обработка ввода пользовательской локации
+    if context.user_data.get('waiting_for_custom_location'):
+        action = context.user_data.get('custom_location_action')
+        user_name = context.user_data.get('user_name')
+        
+        # Валидация введенного текста
+        if len(text.strip()) < 2:
+            await update.message.reply_text(
+                "❌ Слишком короткое название!\n\n"
+                "📝 Введите местоположение (минимум 2 символа):"
+            )
+            return
+            
+        if len(text.strip()) > 50:
+            await update.message.reply_text(
+                "❌ Слишком длинное название!\n\n"
+                "📝 Введите местоположение (максимум 50 символов):"
+            )
+            return
+        
+        # Сохраняем отметку с пользовательской локацией
+        custom_location = text.strip()
+        
+        conn = sqlite3.connect('data/personnel.db')
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute(
+                "INSERT INTO arrivals (user_id, location, custom_location, status) VALUES (?, ?, ?, ?)",
+                (user_id, "Другое", custom_location, action)
+            )
+            conn.commit()
+            
+            # Очищаем состояние
+            context.user_data['waiting_for_custom_location'] = False
+            context.user_data['custom_location_action'] = None
+            context.user_data['user_name'] = None
+            
+            # Подтверждение
+            status_emoji = "✅" if action == "arrived" else "❌"
+            status_text = "прибыл" if action == "arrived" else "убыл"
+            
+            keyboard = [
+                [InlineKeyboardButton("📍 Сделать еще отметку", callback_data="main_menu")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"✅ Отметка сохранена!\n\n"
+                f"🎖️ {user_name}\n"
+                f"{status_emoji} {status_text.capitalize()}: {custom_location}\n"
+                f"🕐 {datetime.now().strftime('%H:%M %d.%m.%Y')}\n\n"
+                f"📋 Выберите действие:",
+                reply_markup=reply_markup
+            )
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка сохранения: {str(e)}")
+        finally:
+            conn.close()
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """🔘 Обработчик inline кнопок"""
@@ -292,6 +424,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = user[0]
     
     if data == "cancel":
+        # Очищаем все состояния ожидания
+        context.user_data.clear()
         await query.edit_message_text("❌ Операция отменена")
         return
     
@@ -324,6 +458,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("admin_"):
         # Обработка админских команд
         await handle_admin_commands(query, context, data, user_id)
+    
+    elif data == "toggle_summary":
+        NOTIFICATION_SETTINGS['summary_enabled'] = not NOTIFICATION_SETTINGS['summary_enabled']
+        await show_notification_settings(query, context)
+    
+    elif data == "toggle_reminders":
+        NOTIFICATION_SETTINGS['reminder_enabled'] = not NOTIFICATION_SETTINGS['reminder_enabled']
+        await show_notification_settings(query, context)
+    
+    elif data == "main_menu":
+        await show_main_menu(query, context, user_name)
 
 async def show_location_menu(query, context, action, user_name):
     """📍 Показать меню выбора локации"""
@@ -358,14 +503,42 @@ async def show_location_menu(query, context, action, user_name):
 
 async def process_location_action(query, context, action, location, user_id, user_name):
     """⚡ Обработка действия с локацией"""
+    
+    # Если выбрана локация "Другое", запрашиваем ввод
+    if location == "Другое":
+        # Сохраняем состояние для обработки в text_handler
+        context.user_data['waiting_for_custom_location'] = True
+        context.user_data['custom_location_action'] = action
+        context.user_data['user_name'] = user_name
+        
+        action_text = "прибытия" if action == "arrived" else "убытия"
+        
+        keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="back_to_main")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"📝 Введите место {action_text}:\n\n"
+            f"🎖️ {user_name}\n\n"
+            f"💡 Примеры:\n"
+            f"• Дом\n"
+            f"• Спортзал\n"
+            f"• Учебка\n"
+            f"• Командировка\n"
+            f"• Отпуск\n\n"
+            f"📝 Напишите ваше местоположение (2-50 символов):",
+            reply_markup=reply_markup
+        )
+        return
+    
+    # Обычная обработка для стандартных локаций
     status = "✅ Прибыл" if action == "arrived" else "❌ Убыл"
     
     # Записываем в базу данных
     conn = sqlite3.connect('data/personnel.db')
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO arrivals (user_id, location, status) VALUES (?, ?, ?)",
-        (user_id, location, status)
+        "INSERT INTO arrivals (user_id, location, custom_location, status) VALUES (?, ?, ?, ?)",
+        (user_id, location, None, status)
     )
     conn.commit()
     conn.close()
@@ -393,7 +566,7 @@ async def show_my_journal(query, context, user_id, user_name):
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT location, status, created_at
+        SELECT location, custom_location, status, created_at
         FROM arrivals
         WHERE user_id = ?
         ORDER BY created_at DESC
@@ -407,9 +580,10 @@ async def show_my_journal(query, context, user_id, user_name):
         text = f"📋 Журнал: {user_name}\n\n❌ Нет записей"
     else:
         text = f"📋 Журнал: {user_name}\n\n"
-        for location, status, created_at in records:
+        for location, custom_location, status, created_at in records:
+            display_location = custom_location if custom_location else location
             date_str = datetime.fromisoformat(created_at).strftime('%d.%m %H:%M')
-            text += f"• {location} - {status} ({date_str})\n"
+            text += f"• {display_location} - {status} ({date_str})\n"
     
     keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -434,6 +608,9 @@ async def show_admin_panel(query, context):
     
     if has_permission(user_id, 'cleanup_data'):
         keyboard.append([InlineKeyboardButton("🧹 Очистка данных", callback_data="admin_cleanup")])
+    
+    if has_permission(user_id, 'notification_settings'):
+        keyboard.append([InlineKeyboardButton("🔔 Настройки уведомлений", callback_data="admin_notifications")])
     
     # Функции только для главного админа
     if is_main_admin(user_id):
@@ -479,6 +656,12 @@ async def handle_admin_commands(query, context, data, user_id):
             await query.edit_message_text("❌ Только главный админ!")
             return
         await show_admin_management(query, context)
+    
+    elif data == "admin_notifications":
+        if not has_permission(user_id, 'notification_settings'):
+            await query.edit_message_text("❌ Нет прав доступа!")
+            return
+        await show_notification_settings(query, context)
     
     elif data.startswith("make_admin_"):
         target_user_id = int(data.split("_")[2])
@@ -613,14 +796,28 @@ async def show_statistics(query, context):
     
     # Статистика по локациям за сегодня
     cursor.execute("""
-        SELECT location, COUNT(*) 
+        SELECT 
+            CASE 
+                WHEN custom_location IS NOT NULL THEN custom_location
+                ELSE location 
+            END as display_location,
+            COUNT(*) 
         FROM arrivals 
         WHERE DATE(created_at) = DATE('now') 
-        GROUP BY location 
+        GROUP BY display_location 
         ORDER BY COUNT(*) DESC 
         LIMIT 5
     """)
     top_locations = cursor.fetchall()
+    
+    # Статистика по статусам
+    cursor.execute("""
+        SELECT status, COUNT(*) 
+        FROM arrivals 
+        WHERE DATE(created_at) = DATE('now') 
+        GROUP BY status
+    """)
+    status_stats = cursor.fetchall()
     
     conn.close()
     
@@ -628,6 +825,12 @@ async def show_statistics(query, context):
     text += f"👥 Всего пользователей: {total_users}\n"
     text += f"📅 Отметок сегодня: {today_arrivals}\n"
     text += f"📋 Всего отметок: {total_arrivals}\n\n"
+    
+    if status_stats:
+        text += f"📈 Статистика за сегодня:\n"
+        for status, count in status_stats:
+            text += f"• {status}: {count} отметок\n"
+        text += "\n"
     
     if top_locations:
         text += f"🏆 Топ локации сегодня:\n"
@@ -716,14 +919,157 @@ async def show_admin_management(query, context):
     
     await query.edit_message_text(text, reply_markup=reply_markup)
 
-# === УВЕДОМЛЕНИЯ ===
-def send_daily_reminder():
-    """📢 Отправка ежедневного напоминания"""
-    pass
+async def show_notification_settings(query, context):
+    """🔔 Показать настройки уведомлений"""
+    summary_status = "✅ Включены" if NOTIFICATION_SETTINGS['summary_enabled'] else "❌ Отключены"
+    reminder_status = "✅ Включены" if NOTIFICATION_SETTINGS['reminder_enabled'] else "❌ Отключены"
+    
+    keyboard = [
+        [InlineKeyboardButton(f"📊 Сводка админам: {summary_status}", callback_data="toggle_summary")],
+        [InlineKeyboardButton(f"💬 Напоминания: {reminder_status}", callback_data="toggle_reminders")],
+        [InlineKeyboardButton("🕐 Время сводки", callback_data="set_summary_time")],
+        [InlineKeyboardButton("🕕 Время напоминаний", callback_data="set_reminder_time")],
+        [InlineKeyboardButton("🔙 Админ-панель", callback_data="admin_panel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    text = (
+        "🔔 НАСТРОЙКИ УВЕДОМЛЕНИЙ\n\n"
+        f"📊 Сводка админам: {summary_status}\n"
+        f"🕐 Время сводки: {NOTIFICATION_SETTINGS['summary_time']}\n\n"
+        f"💬 Напоминания: {reminder_status}\n"
+        f"🕕 Время напоминаний: {NOTIFICATION_SETTINGS['reminder_time']}\n\n"
+        f"📋 Описание:\n"
+        f"• Сводка - отчет о местонахождении всех\n"
+        f"• Напоминания - только не отметившимся о возвращении\n"
+        f"• Всего смешных фраз: {len(FUNNY_REMINDERS)}"
+    )
+    
+    await query.edit_message_text(text, reply_markup=reply_markup)
 
-def schedule_notifications():
+# === УВЕДОМЛЕНИЯ ===
+async def send_admin_summary(application):
+    """📊 Отправка сводки админам в 19:00"""
+    if not NOTIFICATION_SETTINGS['summary_enabled']:
+        return
+        
+    conn = sqlite3.connect('data/personnel.db')
+    cursor = conn.cursor()
+    
+    # Получаем последнюю отметку каждого пользователя
+    cursor.execute("""
+        SELECT u.user_id, u.full_name, a.location, a.custom_location, a.status, a.created_at
+        FROM users u
+        LEFT JOIN arrivals a ON u.user_id = a.user_id
+        WHERE a.created_at = (
+            SELECT MAX(created_at) FROM arrivals WHERE user_id = u.user_id
+        ) OR a.created_at IS NULL
+        ORDER BY u.full_name
+    """)
+    
+    results = cursor.fetchall()
+    conn.close()
+    
+    # Разделяем на группы
+    in_base = []
+    away = []
+    no_records = []
+    
+    for user_id, name, location, custom_location, status, created_at in results:
+        if not location:  # Нет записей
+            no_records.append(name)
+        else:
+            display_location = custom_location if custom_location else location
+            
+            if status == "✅ Прибыл":
+                if location in IN_BASE_LOCATIONS:
+                    in_base.append(f"• {name}")
+                else:
+                    in_base.append(f"• {name} ({display_location})")
+            else:  # Убыл
+                away.append(f"• {name} → {display_location}")
+    
+    # Формируем сводку
+    summary = f"📊 СВОДКА ЛИЧНОГО СОСТАВА\n🕐 {datetime.now().strftime('%H:%M %d.%m.%Y')}\n\n"
+    
+    if in_base:
+        summary += f"🟢 В РАСПОЛОЖЕНИИ ({len(in_base)}):\n" + "\n".join(in_base) + "\n\n"
+    
+    if away:
+        summary += f"🔴 НЕ В РАСПОЛОЖЕНИИ ({len(away)}):\n" + "\n".join(away) + "\n\n"
+    
+    if no_records:
+        summary += f"⚫ НЕТ ОТМЕТОК ({len(no_records)}):\n" + "\n".join([f"• {name}" for name in no_records]) + "\n\n"
+    
+    summary += f"� Всего личного состава: {len(results)}"
+    
+    # Отправляем всем админам
+    for admin_id in ADMIN_IDS:
+        try:
+            await application.bot.send_message(
+                chat_id=admin_id,
+                text=summary,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки сводки админу {admin_id}: {e}")
+
+async def send_return_reminders(application):
+    """💬 Отправка напоминаний не вернувшимся в 20:30"""
+    if not NOTIFICATION_SETTINGS['reminder_enabled']:
+        return
+    
+    conn = sqlite3.connect('data/personnel.db')
+    cursor = conn.cursor()
+    
+    # Находим пользователей, которые убыли но не отметились о возвращении
+    cursor.execute("""
+        SELECT u.user_id, u.full_name, a.location, a.custom_location, a.created_at
+        FROM users u
+        JOIN arrivals a ON u.user_id = a.user_id
+        WHERE a.created_at = (
+            SELECT MAX(created_at) FROM arrivals WHERE user_id = u.user_id
+        ) AND a.status = '❌ Убыл'
+        AND DATE(a.created_at) = DATE('now')
+    """)
+    
+    results = cursor.fetchall()
+    conn.close()
+    
+    if not results:
+        return
+    
+    # Отправляем напоминания
+    for user_id, name, location, custom_location, created_at in results:
+        try:
+            # Выбираем случайную фразу
+            import random
+            reminder = random.choice(FUNNY_REMINDERS)
+            
+            await application.bot.send_message(
+                chat_id=user_id,
+                text=reminder,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки напоминания пользователю {user_id}: {e}")
+
+def schedule_notifications(application):
     """⏰ Планировщик уведомлений"""
-    schedule.every().day.at("09:00").do(send_daily_reminder)
+    def run_summary():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(send_admin_summary(application))
+        loop.close()
+    
+    def run_reminders():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(send_return_reminders(application))
+        loop.close()
+    
+    schedule.every().day.at(NOTIFICATION_SETTINGS['summary_time']).do(run_summary)
+    schedule.every().day.at(NOTIFICATION_SETTINGS['reminder_time']).do(run_reminders)
     
     while True:
         schedule.run_pending()
@@ -747,7 +1093,7 @@ async def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     
     # Запускаем планировщик в отдельном потоке
-    scheduler_thread = threading.Thread(target=schedule_notifications, daemon=True)
+    scheduler_thread = threading.Thread(target=schedule_notifications, args=(app,), daemon=True)
     scheduler_thread.start()
     
     logger.info("🚀 Бот запущен (оптимизированная версия)")
