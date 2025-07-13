@@ -104,6 +104,22 @@ class Database:
         if self.connection:
             await self.connection.close()
     
+    async def is_connected(self) -> bool:
+        """Проверка подключения к базе данных"""
+        try:
+            if not self.connection:
+                return False
+            
+            # Пробуем выполнить простой запрос
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('SELECT 1')
+                await cursor.fetchone()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка проверки подключения к БД: {e}")
+            return False
+    
     # Методы для работы с пользователями
     async def add_user(self, telegram_id: int, name: str, location: str = None) -> bool:
         """Добавление нового пользователя"""

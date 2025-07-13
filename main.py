@@ -44,8 +44,8 @@ bot = Bot(token=config.BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 db = Database()
-admin_panel = AdminPanel(db)
 notification_system = NotificationSystem(bot, db)
+admin_panel = AdminPanel(db, notification_system)
 
 # Состояния FSM
 class UserStates(StatesGroup):
@@ -63,18 +63,34 @@ async def on_startup(dp):
     """Инициализация при запуске бота"""
     logger.info("🚀 Бот запускается...")
     
-    # Инициализация базы данных
-    await db.init()
-    
-    # Регистрация обработчиков
-    register_handlers(dp, admin_panel, notification_system)
-    
-    # Запуск планировщика уведомлений
-    global schedule_thread
-    schedule_thread = threading.Thread(target=run_scheduler, daemon=True)
-    schedule_thread.start()
-    
-    logger.info("✅ Бот успешно запущен!")
+    try:
+        # Инициализация базы данных
+        await db.init()
+        
+        # Регистрация обработчиков
+        register_handlers(dp, admin_panel, notification_system)
+        
+        # Запуск планировщика уведомлений
+        global schedule_thread
+        schedule_thread = threading.Thread(target=run_scheduler, daemon=True)
+        schedule_thread.start()
+        
+        # Отправляем уведомление о запуске главному админу
+        await notification_system.send_bot_status_notification(
+            "started", 
+            "Бот успешно запущен и готов к работе"
+        )
+        
+        logger.info("✅ Бот успешно запущен!")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка запуска бота: {e}")
+        # Отправляем уведомление об ошибке
+        await notification_system.send_bot_error_notification(
+            str(e), 
+            "Ошибка при запуске бота"
+        )
+        raise
 
 async def on_shutdown(dp):
     """Очистка при остановке бота"""
@@ -82,12 +98,22 @@ async def on_shutdown(dp):
     global bot_running
     bot_running = False
     
-    # Закрытие соединений
-    await bot.close()
-    await storage.close()
-    await db.close()
-    
-    logger.info("✅ Бот остановлен")
+    try:
+        # Отправляем уведомление об остановке главному админу
+        await notification_system.send_bot_status_notification(
+            "stopped", 
+            "Бот остановлен"
+        )
+        
+        # Закрытие соединений
+        await bot.close()
+        await storage.close()
+        await db.close()
+        
+        logger.info("✅ Бот остановлен")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при остановке бота: {e}")
 
 def run_scheduler():
     """Запуск планировщика в отдельном потоке"""
@@ -97,6 +123,12 @@ def run_scheduler():
     # Настройка расписания
     aioschedule.every().day.at("19:00").do(lambda: loop.create_task(send_daily_summary()))
     aioschedule.every().day.at("20:30").do(lambda: loop.create_task(send_reminders()))
+    
+    # Ежедневная проверка здоровья бота в 09:00
+    aioschedule.every().day.at("09:00").do(lambda: loop.create_task(send_health_check()))
+    
+    # Еженедельный отчет о производительности по воскресеньям в 10:00
+    aioschedule.every().sunday.at("10:00").do(lambda: loop.create_task(send_performance_report()))
     
     while bot_running:
         aioschedule.run_pending()
@@ -117,6 +149,22 @@ async def send_reminders():
         await notification_system.send_reminders()
     except Exception as e:
         logger.error(f"❌ Ошибка отправки напоминаний: {e}")
+
+async def send_health_check():
+    """Отправка проверки здоровья бота в 09:00"""
+    try:
+        logger.info("🏥 Отправка проверки здоровья бота...")
+        await notification_system.send_bot_health_check()
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки проверки здоровья: {e}")
+
+async def send_performance_report():
+    """Отправка отчета о производительности по воскресеньям"""
+    try:
+        logger.info("📈 Отправка отчета о производительности...")
+        await notification_system.send_bot_performance_report()
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки отчета о производительности: {e}")
 
 @dp.message_handler(commands=['start'])
 async def start_command(message: types.Message):
@@ -159,6 +207,9 @@ async def help_command(message: types.Message):
         "🔹 `/status` - Статус системы\n\n"
         "💡 *Для админов:*\n"
         "🔹 `/admin` - Админ-панель\n"
+        "🔹 `/health` - Проверка здоровья бота\n"
+        "🔹 `/performance` - Отчет о производительности\n"
+        "🔹 `/maintenance [тип] [длительность]` - Уведомление о ТО\n"
         "🔹 `/export` - Экспорт данных\n"
         "🔹 `/backup` - Резервная копия"
     )
@@ -201,6 +252,38 @@ async def admin_command(message: types.Message):
             reply_markup=get_admin_keyboard(),
             parse_mode=ParseMode.MARKDOWN
         )
+
+@dp.message_handler(commands=['health'])
+async def health_command(message: types.Message):
+    """Обработчик команды /health - проверка здоровья бота"""
+    user_id = message.from_user.id
+    
+    if await admin_panel.is_admin(user_id):
+        await notification_system.send_bot_health_check()
+        await message.answer("🏥 Отчет о здоровье бота отправлен главному админу")
+
+@dp.message_handler(commands=['performance'])
+async def performance_command(message: types.Message):
+    """Обработчик команды /performance - отчет о производительности"""
+    user_id = message.from_user.id
+    
+    if await admin_panel.is_admin(user_id):
+        await notification_system.send_bot_performance_report()
+        await message.answer("📈 Отчет о производительности отправлен главному админу")
+
+@dp.message_handler(commands=['maintenance'])
+async def maintenance_command(message: types.Message):
+    """Обработчик команды /maintenance - уведомление о ТО"""
+    user_id = message.from_user.id
+    
+    if await admin_panel.is_admin(user_id):
+        # Парсим аргументы команды
+        args = message.get_args().split()
+        maintenance_type = args[0] if args else "scheduled"
+        duration = args[1] if len(args) > 1 else "30 минут"
+        
+        await notification_system.send_bot_maintenance_notification(maintenance_type, duration)
+        await message.answer(f"🔧 Уведомление о ТО ({maintenance_type}) отправлено главному админу")
     else:
         await message.answer("❌ У вас нет доступа к админ-панели")
 
@@ -209,6 +292,16 @@ async def admin_command(message: types.Message):
 async def errors_handler(update, exception):
     """Обработчик ошибок"""
     logger.error(f"Ошибка при обработке {update}: {exception}")
+    
+    # Отправляем уведомление об ошибке главному админу
+    try:
+        await notification_system.send_bot_error_notification(
+            str(exception),
+            f"Ошибка при обработке {type(update).__name__}"
+        )
+    except Exception as e:
+        logger.error(f"Не удалось отправить уведомление об ошибке: {e}")
+    
     return True
 
 if __name__ == '__main__':

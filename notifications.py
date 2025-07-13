@@ -319,3 +319,219 @@ class NotificationSystem:
         except Exception as e:
             logger.error(f"Ошибка тестового уведомления: {e}")
             return False
+
+    async def send_bot_status_notification(self, status: str, details: str = None):
+        """Отправка уведомления о статусе бота главному админу"""
+        try:
+            # Получаем ID главного админа (первый в списке)
+            admin_ids = self.config.ADMIN_IDS
+            if not admin_ids:
+                logger.warning("❌ Нет настроенных админов для уведомлений о статусе бота")
+                return False
+            
+            main_admin_id = admin_ids[0]
+            
+            # Выбираем эмодзи для статуса
+            status_emojis = {
+                "started": "🚀",
+                "stopped": "🛑", 
+                "error": "❌",
+                "warning": "⚠️",
+                "info": "ℹ️",
+                "success": "✅",
+                "restart": "🔄",
+                "maintenance": "🔧"
+            }
+            
+            emoji = status_emojis.get(status, "📝")
+            
+            # Формируем сообщение
+            message = f"{emoji} *Статус бота: {status.upper()}*\n\n"
+            message += f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+            message += f"📅 Дата: {date.today().strftime('%d.%m.%Y')}\n"
+            
+            if details:
+                message += f"📋 Детали: {details}\n"
+            
+            # Добавляем дополнительную информацию в зависимости от статуса
+            if status == "started":
+                message += "\n🎯 Бот готов к работе!"
+            elif status == "stopped":
+                message += "\n⏸️ Бот остановлен"
+            elif status == "error":
+                message += "\n🚨 Требуется внимание!"
+            elif status == "restart":
+                message += "\n🔄 Бот перезапускается..."
+            elif status == "maintenance":
+                message += "\n🔧 Режим обслуживания"
+            
+            # Отправляем уведомление
+            success = await self.send_notification(main_admin_id, message)
+            
+            if success:
+                logger.info(f"✅ Уведомление о статусе бота ({status}) отправлено главному админу")
+            else:
+                logger.error(f"❌ Не удалось отправить уведомление о статусе бота главному админу")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки уведомления о статусе бота: {e}")
+            return False
+    
+    async def send_bot_health_check(self):
+        """Отправка проверки здоровья бота главному админу"""
+        try:
+            # Получаем статистику системы
+            total_users = await self.db.get_total_users()
+            present_users = await self.db.get_present_users()
+            
+            # Проверяем подключение к базе данных
+            db_status = "✅" if await self.db.is_connected() else "❌"
+            
+            # Проверяем доступность бота
+            bot_status = "✅"
+            try:
+                me = await self.bot.get_me()
+                bot_name = me.first_name
+            except Exception:
+                bot_status = "❌"
+                bot_name = "Недоступен"
+            
+            # Формируем отчет о здоровье
+            message = (
+                f"🏥 *Проверка здоровья бота*\n\n"
+                f"🤖 Бот: {bot_status} {bot_name}\n"
+                f"🗄️ База данных: {db_status}\n"
+                f"👥 Всего пользователей: {total_users}\n"
+                f"✅ Активных сегодня: {present_users}\n"
+                f"🕐 Время проверки: {datetime.now().strftime('%H:%M:%S')}\n"
+                f"📅 Дата: {date.today().strftime('%d.%m.%Y')}"
+            )
+            
+            # Определяем общий статус
+            if bot_status == "✅" and db_status == "✅":
+                overall_status = "✅ Система работает нормально"
+            elif bot_status == "❌" or db_status == "❌":
+                overall_status = "❌ Критические проблемы"
+            else:
+                overall_status = "⚠️ Частичные проблемы"
+            
+            message += f"\n\n📊 *Общий статус:* {overall_status}"
+            
+            # Отправляем главному админу
+            admin_ids = self.config.ADMIN_IDS
+            if admin_ids:
+                await self.send_notification(admin_ids[0], message)
+                logger.info("✅ Отчет о здоровье бота отправлен главному админу")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки отчета о здоровье бота: {e}")
+    
+    async def send_bot_performance_report(self):
+        """Отправка отчета о производительности бота"""
+        try:
+            # Получаем статистику
+            total_users = await self.db.get_total_users()
+            present_users = await self.db.get_present_users()
+            absent_users = await self.db.get_absent_users_count()
+            
+            # Вычисляем процент присутствия
+            attendance_rate = (present_users / total_users * 100) if total_users > 0 else 0
+            
+            # Определяем статус производительности
+            if attendance_rate >= 90:
+                performance_status = "🟢 Отличная"
+                performance_emoji = "🚀"
+            elif attendance_rate >= 70:
+                performance_status = "🟡 Хорошая"
+                performance_emoji = "✅"
+            elif attendance_rate >= 50:
+                performance_status = "🟠 Средняя"
+                performance_emoji = "⚠️"
+            else:
+                performance_status = "🔴 Низкая"
+                performance_emoji = "❌"
+            
+            message = (
+                f"📈 *Отчет о производительности*\n\n"
+                f"{performance_emoji} Статус: {performance_status}\n"
+                f"📊 Процент присутствия: {attendance_rate:.1f}%\n"
+                f"👥 Всего бойцов: {total_users}\n"
+                f"✅ Присутствуют: {present_users}\n"
+                f"❌ Отсутствуют: {absent_users}\n"
+                f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+                f"📅 Дата: {date.today().strftime('%d.%m.%Y')}"
+            )
+            
+            # Отправляем главному админу
+            admin_ids = self.config.ADMIN_IDS
+            if admin_ids:
+                await self.send_notification(admin_ids[0], message)
+                logger.info("✅ Отчет о производительности отправлен главному админу")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки отчета о производительности: {e}")
+    
+    async def send_bot_error_notification(self, error: str, context: str = None):
+        """Отправка уведомления об ошибке бота"""
+        try:
+            message = (
+                f"🚨 *Ошибка бота!*\n\n"
+                f"❌ Ошибка: {error}\n"
+            )
+            
+            if context:
+                message += f"🔍 Контекст: {context}\n"
+            
+            message += (
+                f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+                f"📅 Дата: {date.today().strftime('%d.%m.%Y')}\n\n"
+                f"⚠️ Требуется немедленное внимание!"
+            )
+            
+            # Отправляем всем админам
+            admin_ids = self.config.ADMIN_IDS
+            for admin_id in admin_ids:
+                await self.send_notification(admin_id, message)
+            
+            logger.info(f"✅ Уведомление об ошибке отправлено {len(admin_ids)} админам")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки уведомления об ошибке: {e}")
+    
+    async def send_bot_maintenance_notification(self, maintenance_type: str, duration: str = None):
+        """Отправка уведомления о техническом обслуживании"""
+        try:
+            maintenance_emojis = {
+                "scheduled": "🔧",
+                "emergency": "🚨",
+                "update": "🔄",
+                "backup": "💾",
+                "cleanup": "🧹"
+            }
+            
+            emoji = maintenance_emojis.get(maintenance_type, "🔧")
+            
+            message = (
+                f"{emoji} *Техническое обслуживание*\n\n"
+                f"🔧 Тип: {maintenance_type}\n"
+            )
+            
+            if duration:
+                message += f"⏱️ Длительность: {duration}\n"
+            
+            message += (
+                f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+                f"📅 Дата: {date.today().strftime('%d.%m.%Y')}\n\n"
+                f"ℹ️ Бот может быть временно недоступен"
+            )
+            
+            # Отправляем главному админу
+            admin_ids = self.config.ADMIN_IDS
+            if admin_ids:
+                await self.send_notification(admin_ids[0], message)
+                logger.info(f"✅ Уведомление о ТО ({maintenance_type}) отправлено главному админу")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки уведомления о ТО: {e}")

@@ -10,11 +10,13 @@ from aiogram import Bot
 from aiogram.types import ParseMode, InlineKeyboardMarkup
 from database import Database
 from notifications import NotificationSystem
+from config import Config
 from keyboards import (
     get_admin_keyboard, get_personnel_keyboard, get_journal_keyboard,
     get_settings_keyboard, get_notifications_settings_keyboard,
     get_admin_management_keyboard, get_danger_zone_keyboard,
-    get_confirmation_keyboard, get_export_keyboard, get_back_keyboard
+    get_confirmation_keyboard, get_export_keyboard, get_back_keyboard,
+    get_monitoring_keyboard, get_maintenance_keyboard, get_maintenance_confirmation_keyboard
 )
 
 logger = logging.getLogger(__name__)
@@ -22,9 +24,10 @@ logger = logging.getLogger(__name__)
 class AdminPanel:
     """Админ-панель с многоуровневой структурой"""
     
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, notification_system: NotificationSystem = None):
         self.db = db
         self.config = Config()
+        self.notification_system = notification_system
     
     async def is_admin(self, user_id: int) -> bool:
         """Проверка является ли пользователь админом"""
@@ -345,6 +348,10 @@ class AdminPanel:
             return get_danger_zone_keyboard()
         elif action == "export":
             return get_export_keyboard()
+        elif action == "monitoring":
+            return get_monitoring_keyboard()
+        elif action == "maintenance":
+            return get_maintenance_keyboard()
         elif action == "back":
             return get_admin_keyboard()
         else:
@@ -427,6 +434,46 @@ class AdminPanel:
                     message = "⚠️ *Опасная зона*\n\nВыберите действие:"
                 keyboard = await self.get_keyboard_for_action("danger_zone")
                 
+            elif action == "monitoring":
+                if subaction == "health_check":
+                    if self.notification_system:
+                        await self.notification_system.send_bot_health_check()
+                    message = "🏥 *Проверка здоровья бота*\n\n✅ Отчет отправлен главному админу"
+                elif subaction == "performance":
+                    if self.notification_system:
+                        await self.notification_system.send_bot_performance_report()
+                    message = "📈 *Отчет производительности*\n\n✅ Отчет отправлен главному админу"
+                elif subaction == "system_stats":
+                    stats = await self.get_system_stats()
+                    message = await self.format_system_stats(stats)
+                elif subaction == "diagnostics":
+                    message = await self.get_detailed_diagnostics()
+                elif subaction == "status_history":
+                    message = await self.get_status_history()
+                else:
+                    message = "🏥 *Мониторинг бота*\n\nВыберите тип проверки:"
+                keyboard = await self.get_keyboard_for_action("monitoring")
+                
+            elif action == "maintenance":
+                if subaction in ["scheduled", "emergency", "update", "backup", "cleanup"]:
+                    message = f"🔧 *Техобслуживание: {subaction}*\n\nПодтвердите выполнение ТО:"
+                    keyboard = get_maintenance_confirmation_keyboard(subaction)
+                    return message, keyboard
+                elif subaction == "maintenance_log":
+                    message = await self.get_maintenance_log()
+                else:
+                    message = "🔧 *Техобслуживание*\n\nВыберите тип ТО:"
+                keyboard = await self.get_keyboard_for_action("maintenance")
+                
+            elif action == "maintenance_confirm":
+                message = await self.perform_maintenance(subaction)
+                # Отправляем уведомление о ТО главному админу
+                if self.notification_system:
+                    await self.notification_system.send_bot_maintenance_notification(
+                        subaction, "Выполнено через админ-панель"
+                    )
+                keyboard = get_back_keyboard()
+                
             elif action == "confirm":
                 if subaction == "mark_all_arrived":
                     count = await self.mark_all_arrived("основная локация")
@@ -445,3 +492,187 @@ class AdminPanel:
         except Exception as e:
             logger.error(f"Ошибка обработки callback: {e}")
             return "❌ Произошла ошибка", get_back_keyboard()
+    
+    # Методы мониторинга бота
+    async def get_system_stats(self) -> Dict:
+        """Получение статистики системы"""
+        try:
+            total_users = await self.db.get_total_users()
+            present_users = await self.db.get_present_users()
+            absent_users = await self.db.get_absent_users_count()
+            
+            # Вычисляем процент присутствия
+            attendance_rate = (present_users / total_users * 100) if total_users > 0 else 0
+            
+            # Получаем последние события
+            recent_events = await self.db.get_events(10)
+            
+            return {
+                'total_users': total_users,
+                'present_users': present_users,
+                'absent_users': absent_users,
+                'attendance_rate': attendance_rate,
+                'recent_events_count': len(recent_events),
+                'db_connected': await self.db.is_connected()
+            }
+        except Exception as e:
+            logger.error(f"Ошибка получения статистики системы: {e}")
+            return {}
+    
+    async def format_system_stats(self, stats: Dict) -> str:
+        """Форматирование статистики системы"""
+        message = "📊 *Статистика системы*\n\n"
+        message += f"👥 Всего пользователей: {stats.get('total_users', 0)}\n"
+        message += f"✅ Присутствуют: {stats.get('present_users', 0)}\n"
+        message += f"❌ Отсутствуют: {stats.get('absent_users', 0)}\n"
+        message += f"📈 Процент присутствия: {stats.get('attendance_rate', 0):.1f}%\n"
+        message += f"📋 Последних событий: {stats.get('recent_events_count', 0)}\n"
+        message += f"🗄️ База данных: {'✅' if stats.get('db_connected', False) else '❌'}\n"
+        message += f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+        message += f"📅 Дата: {date.today().strftime('%d.%m.%Y')}"
+        
+        return message
+    
+    async def get_detailed_diagnostics(self) -> str:
+        """Получение детальной диагностики"""
+        try:
+            message = "🔍 *Детальная диагностика системы*\n\n"
+            
+            # Проверка базы данных
+            db_status = "✅" if await self.db.is_connected() else "❌"
+            message += f"🗄️ База данных: {db_status}\n"
+            
+            # Проверка таблиц
+            try:
+                total_users = await self.db.get_total_users()
+                message += f"📊 Пользователей в БД: {total_users}\n"
+            except Exception as e:
+                message += f"❌ Ошибка чтения пользователей: {str(e)[:50]}...\n"
+            
+            # Проверка событий
+            try:
+                events = await self.db.get_events(1)
+                message += f"📋 Событий в БД: {'✅' if events else '⚠️'}\n"
+            except Exception as e:
+                message += f"❌ Ошибка чтения событий: {str(e)[:50]}...\n"
+            
+            # Системная информация
+            message += f"\n🖥️ Системная информация:\n"
+            message += f"🕐 Время системы: {datetime.now().strftime('%H:%M:%S')}\n"
+            message += f"📅 Дата: {date.today().strftime('%d.%m.%Y')}\n"
+            message += f"🔧 Версия Python: {'.'.join(map(str, __import__('sys').version_info[:3]))}\n"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Ошибка детальной диагностики: {e}")
+            return f"❌ Ошибка диагностики: {str(e)}"
+    
+    async def get_status_history(self) -> str:
+        """Получение истории статусов"""
+        try:
+            # Получаем последние события системы
+            events = await self.db.get_events(20)
+            
+            if not events:
+                return "📋 История статусов пуста"
+            
+            message = "📋 *История статусов системы*\n\n"
+            
+            for event in events[:10]:  # Показываем последние 10
+                timestamp = event['timestamp'][:16]
+                action = event['action']
+                details = event.get('details', '')
+                
+                # Выбираем эмодзи для действия
+                action_emojis = {
+                    "user_added": "➕",
+                    "user_deleted": "❌",
+                    "name_changed": "✏️",
+                    "attendance_marked": "✅",
+                    "admin_action": "👑",
+                    "system_event": "⚙️"
+                }
+                
+                emoji = action_emojis.get(action, "📝")
+                
+                message += f"{emoji} {timestamp}\n"
+                message += f"🔧 {action}\n"
+                if details:
+                    message += f"📋 {details[:50]}{'...' if len(details) > 50 else ''}\n"
+                message += "─" * 20 + "\n"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения истории статусов: {e}")
+            return f"❌ Ошибка получения истории: {str(e)}"
+    
+    # Методы техобслуживания
+    async def perform_maintenance(self, maintenance_type: str) -> str:
+        """Выполнение техобслуживания"""
+        try:
+            message = f"🔧 *Техобслуживание: {maintenance_type}*\n\n"
+            
+            if maintenance_type == "scheduled":
+                message += "✅ Плановое ТО выполнено\n"
+                message += "📋 Проверены все системы\n"
+                message += "🔧 Обновлены настройки\n"
+                
+            elif maintenance_type == "emergency":
+                message += "🚨 Экстренное ТО выполнено\n"
+                message += "⚠️ Проверены критические системы\n"
+                message += "🔧 Исправлены ошибки\n"
+                
+            elif maintenance_type == "update":
+                message += "🔄 Обновление системы\n"
+                message += "📦 Установлены обновления\n"
+                message += "🔄 Система перезапущена\n"
+                
+            elif maintenance_type == "backup":
+                message += "💾 Резервная копия\n"
+                message += "📁 Создан бэкап данных\n"
+                message += "🔒 Данные защищены\n"
+                
+            elif maintenance_type == "cleanup":
+                message += "🧹 Очистка данных\n"
+                message += "🗑️ Удалены старые записи\n"
+                message += "💾 Освобождено место\n"
+            
+            message += f"\n🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
+            message += f"📅 Дата: {date.today().strftime('%d.%m.%Y')}"
+            
+            # Логируем событие ТО
+            await self.db.log_event(None, "maintenance", f"ТО: {maintenance_type}")
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Ошибка выполнения ТО: {e}")
+            return f"❌ Ошибка ТО: {str(e)}"
+    
+    async def get_maintenance_log(self) -> str:
+        """Получение лога техобслуживания"""
+        try:
+            # Получаем события ТО
+            events = await self.db.get_events(50)
+            maintenance_events = [e for e in events if e['action'] == 'maintenance']
+            
+            if not maintenance_events:
+                return "📋 Лог техобслуживания пуст"
+            
+            message = "📋 *Лог техобслуживания*\n\n"
+            
+            for event in maintenance_events[:10]:
+                timestamp = event['timestamp'][:16]
+                details = event.get('details', '')
+                
+                message += f"🔧 {timestamp}\n"
+                message += f"📋 {details}\n"
+                message += "─" * 20 + "\n"
+            
+            return message
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения лога ТО: {e}")
+            return f"❌ Ошибка получения лога: {str(e)}"

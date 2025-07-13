@@ -34,7 +34,11 @@ def get_admin_keyboard():
             InlineKeyboardButton("📖 Журнал событий", callback_data=admin_cb.new("journal", "")),
             InlineKeyboardButton("⚙️ Настройки", callback_data=admin_cb.new("settings", ""))
         ],
-        [InlineKeyboardButton("🔙 Назад", callback_data=user_cb.new("back_to_main"))]
+        [
+            InlineKeyboardButton("🏥 Мониторинг бота", callback_data=admin_cb.new("monitoring", "")),
+            InlineKeyboardButton("� Техобслуживание", callback_data=admin_cb.new("maintenance", ""))
+        ],
+        [InlineKeyboardButton("� Назад", callback_data=user_cb.new("back_to_main"))]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -194,5 +198,53 @@ def get_cancel_keyboard():
     """Клавиатура с кнопкой отмены"""
     keyboard = [
         [InlineKeyboardButton("❌ Отмена", callback_data=user_cb.new("cancel"))]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_monitoring_keyboard():
+    """Клавиатура мониторинга бота - Уровень 2: Меню «🏥 Мониторинг бота»"""
+    keyboard = [
+        [
+            InlineKeyboardButton("🏥 Проверка здоровья", callback_data=admin_cb.new("monitoring", "health_check")),
+            InlineKeyboardButton("📈 Отчет производительности", callback_data=admin_cb.new("monitoring", "performance"))
+        ],
+        [
+            InlineKeyboardButton("📊 Статистика системы", callback_data=admin_cb.new("monitoring", "system_stats")),
+            InlineKeyboardButton("🔍 Детальная диагностика", callback_data=admin_cb.new("monitoring", "diagnostics"))
+        ],
+        [
+            InlineKeyboardButton("⏰ Автоматические проверки", callback_data=admin_cb.new("monitoring", "auto_checks")),
+            InlineKeyboardButton("📋 История статусов", callback_data=admin_cb.new("monitoring", "status_history"))
+        ],
+        [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("back", ""))]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_maintenance_keyboard():
+    """Клавиатура техобслуживания - Уровень 2: Меню «🔧 Техобслуживание»"""
+    keyboard = [
+        [
+            InlineKeyboardButton("🔧 Плановое ТО", callback_data=admin_cb.new("maintenance", "scheduled")),
+            InlineKeyboardButton("🚨 Экстренное ТО", callback_data=admin_cb.new("maintenance", "emergency"))
+        ],
+        [
+            InlineKeyboardButton("🔄 Обновление системы", callback_data=admin_cb.new("maintenance", "update")),
+            InlineKeyboardButton("💾 Резервная копия", callback_data=admin_cb.new("maintenance", "backup"))
+        ],
+        [
+            InlineKeyboardButton("🧹 Очистка данных", callback_data=admin_cb.new("maintenance", "cleanup")),
+            InlineKeyboardButton("📋 Лог ТО", callback_data=admin_cb.new("maintenance", "maintenance_log"))
+        ],
+        [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("back", ""))]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_maintenance_confirmation_keyboard(maintenance_type: str):
+    """Клавиатура подтверждения техобслуживания"""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Подтвердить ТО", callback_data=admin_cb.new("maintenance_confirm", maintenance_type)),
+            InlineKeyboardButton("❌ Отменить", callback_data=admin_cb.new("maintenance", ""))
+        ]
     ]
     return InlineKeyboardMarkup(keyboard)
