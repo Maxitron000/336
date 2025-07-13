@@ -1,10 +1,11 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+THIS SHOULD BE A LINTER ERRORfrom telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from database import get_all_users, get_all_logs, clear_logs, get_daily_stats
 from keyboards import (
     admin_menu_keyboard,
     admin_export_keyboard,
     admin_danger_keyboard,
+    clear_logs_period_keyboard,
     confirm_danger_keyboard,
     double_confirm_danger_keyboard,
     admin_manage_users_keyboard,
@@ -258,6 +259,19 @@ def handle_admin_callback(update: Update, context: CallbackContext):
             parse_mode='Markdown'
         )
 
+    elif data == 'danger_clear_logs_menu':
+        query.edit_message_text(
+            "🗑️ **ОЧИСТКА ЖУРНАЛА**\n\n"
+            "📊 Выберите период для очистки:\n"
+            "📅 За сегодня - удалит записи только за сегодня\n"
+            "📆 За неделю - удалит записи за последние 7 дней\n"
+            "🗓️ За месяц - удалит записи за последние 30 дней\n"
+            "🗑️ Весь журнал - удалит ВСЕ записи\n\n"
+            "⚠️ Все действия НЕОБРАТИМЫ!",
+            reply_markup=clear_logs_period_keyboard(),
+            parse_mode='Markdown'
+        )
+
     elif data == 'danger_clear_logs':
         query.edit_message_text(
             "⚠️ **ВНИМАНИЕ! КРИТИЧЕСКОЕ ДЕЙСТВИЕ!**\n\n"
@@ -474,3 +488,40 @@ def mark_all_arrived():
     conn.close()
     
     return updated_count
+
+def clear_logs_by_period(period):
+    """Очищает логи за указанный период"""
+    from datetime import datetime, timedelta
+    
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    current_time = get_current_time()
+    
+    if period == 'today':
+        # За сегодня
+        start_of_day = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        cursor.execute("DELETE FROM logs WHERE timestamp >= ?", (start_of_day,))
+    elif period == 'week':
+        # За неделю
+        week_ago = current_time - timedelta(days=7)
+        cursor.execute("DELETE FROM logs WHERE timestamp >= ?", (week_ago,))
+    elif period == 'month':
+        # За месяц
+        month_ago = current_time - timedelta(days=30)
+        cursor.execute("DELETE FROM logs WHERE timestamp >= ?", (month_ago,))
+    
+    deleted_count = cursor.rowcount
+    conn.commit()
+    conn.close()
+    
+    return deleted_count
+
+def get_period_description(period):
+    """Возвращает описание периода"""
+    descriptions = {
+        'today': 'за сегодня',
+        'week': 'за неделю',
+        'month': 'за месяц'
+    }
+    return descriptions.get(period, period)

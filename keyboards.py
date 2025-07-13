@@ -82,10 +82,20 @@ def admin_export_keyboard():
 
 def admin_danger_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🗑️ Очистить журнал", callback_data='danger_clear_logs')],
+        [InlineKeyboardButton("🗑️ Очистить журнал", callback_data='danger_clear_logs_menu')],
         [InlineKeyboardButton("♻️ Сбросить статусы", callback_data='danger_reset_statuses')],
         [InlineKeyboardButton("🏠 Отметить всех прибывшими", callback_data='danger_mark_all_arrived')],
-        [InlineKeyboardButton("« Назад", callback_data='admin_back')]
+        [InlineKeyboardButton("🔙 Назад", callback_data='admin_back')]
+    ])
+
+def clear_logs_period_keyboard():
+    """Выбор периода для очистки журнала"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 За сегодня", callback_data='danger_clear_today')],
+        [InlineKeyboardButton("📆 За неделю", callback_data='danger_clear_week')],
+        [InlineKeyboardButton("🗓️ За месяц", callback_data='danger_clear_month')],
+        [InlineKeyboardButton("🗑️ Весь журнал", callback_data='danger_clear_logs')],
+        [InlineKeyboardButton("🔙 Назад", callback_data='admin_danger')]
     ])
 
 def confirm_danger_keyboard(action):
