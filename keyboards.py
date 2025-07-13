@@ -11,20 +11,97 @@ user_cb = CallbackData("user", "action")
 commander_cb = CallbackData("commander", "action")
 
 def get_main_keyboard():
-    """Главная клавиатура для обычных пользователей"""
-    keyboard = [
-        [
-            KeyboardButton("✅ Прибыл"),
-            KeyboardButton("� Убыл"),
-            KeyboardButton("📍 Локация")
-        ],
-        [
-            KeyboardButton("📊 Мой статус"),
-            KeyboardButton("📖 Помощь"),
-            KeyboardButton("⚙️ Настройки")
-        ]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+    """Главная клавиатура для бойцов"""
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    
+    keyboard.add(
+        InlineKeyboardButton("✅ Прибыл", callback_data="arrived"),
+        InlineKeyboardButton("🚪 Убыл", callback_data="departed")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("📊 Мой статус", callback_data="my_status"),
+        InlineKeyboardButton("📋 Сводка", callback_data="summary")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("⚙️ Настройки", callback_data="settings"),
+        InlineKeyboardButton("❓ Помощь", callback_data="help")
+    )
+    
+    return keyboard
+
+def get_arrival_keyboard():
+    """Клавиатура для отметки прибытия"""
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    
+    keyboard.add(
+        InlineKeyboardButton("✅ В расположении", callback_data="arrived_in_location"),
+        InlineKeyboardButton("📝 С примечанием", callback_data="arrived_with_note")
+    )
+    
+    keyboard.add([InlineKeyboardButton("� Назад", callback_data="back_to_main")])
+    
+    return keyboard
+
+def get_departure_keyboard():
+    """Клавиатура для отметки убытия"""
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    
+    # Основные локации
+    keyboard.add(
+        InlineKeyboardButton("🏥 Больничный", callback_data="departed_hospital"),
+        InlineKeyboardButton("🏖️ Отпуск", callback_data="departed_vacation")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("📚 Обучение", callback_data="departed_training"),
+        InlineKeyboardButton("� Командировка", callback_data="departed_business_trip")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("🏠 Увольнение", callback_data="departed_leave"),
+        InlineKeyboardButton("⚖️ Суд", callback_data="departed_court")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("🏛️ Военкомат", callback_data="departed_military_office"),
+        InlineKeyboardButton("🏥 Госпиталь", callback_data="departed_hospital_ward")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("📋 Служебная", callback_data="departed_service"),
+        InlineKeyboardButton("🏠 Домой", callback_data="departed_home")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("🚑 Медицинская", callback_data="departed_medical"),
+        InlineKeyboardButton("📝 Документы", callback_data="departed_documents")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("🔧 Техобслуживание", callback_data="departed_maintenance"),
+        InlineKeyboardButton("📊 Учения", callback_data="departed_exercises")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("🛡️ Караул", callback_data="departed_guard"),
+        InlineKeyboardButton("🏃 Наряд", callback_data="departed_duty")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("📋 Дежурство", callback_data="departed_watch"),
+        InlineKeyboardButton("🚨 Тревога", callback_data="departed_alarm")
+    )
+    
+    keyboard.add(
+        InlineKeyboardButton("⚡ Срочная", callback_data="departed_urgent"),
+        InlineKeyboardButton("📍 Другая локация", callback_data="departed_custom")
+    )
+    
+    keyboard.add([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
+    
+    return keyboard
 
 def get_admin_keyboard():
     """Главная админская клавиатура - Уровень 1: 🏠 Главное меню"""

@@ -12,7 +12,8 @@ from admin import AdminPanel
 from notifications import NotificationSystem
 from keyboards import (
     get_main_keyboard, get_location_keyboard, get_cancel_keyboard,
-    admin_cb, user_cb, get_pagination_keyboard
+    admin_cb, user_cb, get_pagination_keyboard,
+    get_arrival_keyboard, get_departure_keyboard
 )
 from utils import (
     is_admin, get_locations_list, 
@@ -521,51 +522,216 @@ async def handle_settings(message: types.Message):
 
 async def handle_callback_query(callback_query: types.CallbackQuery, state: FSMContext):
     """Обработчик callback-запросов"""
+    user_id = callback_query.from_user.id
+    data = callback_query.data
+    
     try:
-        data = callback_query.data
-        user_id = callback_query.from_user.id
-        
-        # Обрабатываем админские callback
-        if data.startswith("admin:"):
+        # Обработка админ-панели
+        if data.startswith('admin:'):
             await handle_admin_callback(callback_query, data)
-        # Обрабатываем пользовательские callback
-        elif data.startswith("user:"):
+            return
+        
+        # Обработка пользовательских callback
+        if data.startswith('user:'):
             await handle_user_callback(callback_query, data, state)
-        else:
-            await callback_query.answer("❌ Неизвестный callback")
-            
+            return
+        
+        # Обработка военной логики
+        if data in ['arrived', 'departed', 'my_status', 'summary', 'settings', 'help']:
+            await handle_main_menu(callback_query)
+            return
+        
+        if data.startswith('arrived_'):
+            await handle_arrival_callback(callback_query, state)
+            return
+        
+        if data.startswith('departed_'):
+            await handle_departure_callback(callback_query, state)
+            return
+        
+        if data == 'back_to_main':
+            await back_to_main(callback_query)
+            return
+        
+        if data == 'cancel':
+            await cancel_action(callback_query, state)
+            return
+        
+        # Обработка локаций
+        if data.startswith('location:'):
+            await handle_location_callback(callback_query, data, state)
+            return
+        
+        # Обработка админ-панели
+        if data.startswith('admin:'):
+            await handle_admin_callback(callback_query, data)
+            return
+        
     except Exception as e:
         logger.error(f"Ошибка обработки callback: {e}")
         await callback_query.answer("❌ Произошла ошибка")
 
-async def handle_admin_callback(callback_query: types.CallbackQuery, data: str):
-    """Обработка админских callback-запросов"""
-    try:
-        user_id = callback_query.from_user.id
+async def handle_main_menu(callback_query: types.CallbackQuery):
+    """Обработчик главного меню"""
+    user_id = callback_query.from_user.id
+    data = callback_query.data
+    
+    if data == 'arrived':
+        await callback_query.message.edit_text(
+            "✅ *Отметка прибытия в расположение*\n\n"
+            "Выберите способ отметки:",
+            reply_markup=get_arrival_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    elif data == 'departed':
+        await callback_query.message.edit_text(
+            "🚪 *Отметка убытия из расположения*\n\n"
+            "Выберите локацию убытия:",
+            reply_markup=get_departure_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    elif data == 'my_status':
+        status = await admin_panel.db.get_user_status(user_id)
+        user = await admin_panel.db.get_user(user_id)
         
-        # Парсим callback data
-        parts = data.split(":")
-        if len(parts) >= 3:
-            action = parts[1]
-            subaction = parts[2]
+        if user:
+            message = f"📊 *Ваш статус:*\n\n"
+            message += f"👤 **ФИО:** {user['name']}\n"
+            message += f"📍 **Статус:** {status or 'В расположении'}\n"
+            message += f"🕐 **Время:** {get_current_time().strftime('%H:%M')}\n"
+            message += f"📅 **Дата:** {get_current_time().strftime('%d.%m.%Y')}"
         else:
-            action = parts[1] if len(parts) > 1 else ""
-            subaction = ""
-        
-        # Обрабатываем через админ-панель
-        message, keyboard = await admin_panel.handle_callback(data, user_id)
+            message = "❌ Пользователь не найден"
         
         await callback_query.message.edit_text(
             message,
-            reply_markup=keyboard,
+            reply_markup=get_back_to_main_keyboard(),
             parse_mode=ParseMode.MARKDOWN
         )
+    
+    elif data == 'summary':
+        # Показываем сводку только для админов
+        if await admin_panel.is_admin(user_id):
+            data = await admin_panel.get_dashboard_data()
+            message = await admin_panel.format_dashboard_message(data)
+        else:
+            message = "📋 *Сводка по части*\n\n"
+            total_users = await admin_panel.db.get_total_users()
+            present_users = await admin_panel.db.get_present_users()
+            absent_users = await admin_panel.db.get_absent_users_count()
+            
+            message += f"👥 **Всего личного состава:** {total_users}\n"
+            message += f"✅ **В расположении:** {present_users}\n"
+            message += f"❌ **Вне расположения:** {absent_users}\n"
+            message += f"📊 **Процент присутствия:** {(present_users/total_users*100):.1f}%" if total_users > 0 else "0%"
         
-        await callback_query.answer()
+        await callback_query.message.edit_text(
+            message,
+            reply_markup=get_back_to_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    elif data == 'settings':
+        await callback_query.message.edit_text(
+            "⚙️ *Настройки*\n\n"
+            "🔔 Уведомления: Включены\n"
+            "📊 Сводки: Ежедневно в 19:00\n"
+            "🔕 Тихий режим: Отключен\n\n"
+            "Для изменения настроек обратитесь к командиру.",
+            reply_markup=get_back_to_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    elif data == 'help':
+        help_text = (
+            "❓ *Помощь по использованию бота*\n\n"
+            "**Основные команды:**\n"
+            "✅ **Прибыл** - отметиться в расположении\n"
+            "🚪 **Убыл** - отметить убытие из расположения\n"
+            "📊 **Мой статус** - посмотреть свой статус\n"
+            "📋 **Сводка** - общая сводка по части\n\n"
+            "**Правила:**\n"
+            "• Прибыл = в расположении части\n"
+            "• Убыл = в любую локацию вне расположения\n"
+            "• По умолчанию = в расположении\n\n"
+            "**Поддержка:**\n"
+            "При проблемах обращайтесь к командиру"
+        )
         
-    except Exception as e:
-        logger.error(f"Ошибка обработки админского callback: {e}")
-        await callback_query.answer("❌ Произошла ошибка")
+        await callback_query.message.edit_text(
+            help_text,
+            reply_markup=get_back_to_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+async def handle_arrival_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработчик отметки прибытия"""
+    user_id = callback_query.from_user.id
+    
+    if callback_query.data == 'arrived_in_location':
+        success, message = await admin_panel.db.mark_attendance(user_id)
+        await callback_query.message.edit_text(
+            message,
+            reply_markup=get_back_to_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    elif callback_query.data == 'arrived_with_note':
+        await UserStates.waiting_for_note.set()
+        await callback_query.message.edit_text(
+            "📝 *Добавьте примечание к отметке прибытия*\n\n"
+            "Например: прибыл с утренней пробежки, вернулся с дежурства и т.д.\n\n"
+            "Отправьте текст примечания или нажмите 'Отмена':",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+async def handle_departure_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    """Обработчик отметки убытия"""
+    user_id = callback_query.from_user.id
+    
+    # Маппинг локаций
+    location_map = {
+        'departed_hospital': '🏥 Больничный',
+        'departed_vacation': '🏖️ Отпуск',
+        'departed_training': '📚 Обучение',
+        'departed_business_trip': '🚗 Командировка',
+        'departed_leave': '🏠 Увольнение',
+        'departed_court': '⚖️ Суд',
+        'departed_military_office': '🏛️ Военкомат',
+        'departed_hospital_ward': '🏥 Госпиталь',
+        'departed_service': '📋 Служебная',
+        'departed_home': '🏠 Домой',
+        'departed_medical': '🚑 Медицинская',
+        'departed_documents': '📝 Документы',
+        'departed_maintenance': '🔧 Техобслуживание',
+        'departed_exercises': '📊 Учения',
+        'departed_guard': '🛡️ Караул',
+        'departed_duty': '🏃 Наряд',
+        'departed_watch': '📋 Дежурство',
+        'departed_alarm': '🚨 Тревога',
+        'departed_urgent': '⚡ Срочная'
+    }
+    
+    if callback_query.data in location_map:
+        location = location_map[callback_query.data]
+        success, message = await admin_panel.db.mark_departure(user_id, location)
+        await callback_query.message.edit_text(
+            message,
+            reply_markup=get_back_to_main_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    elif callback_query.data == 'departed_custom':
+        await UserStates.waiting_for_custom_location.set()
+        await callback_query.message.edit_text(
+            "📍 *Укажите локацию убытия*\n\n"
+            "Отправьте название локации или нажмите 'Отмена':",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
 
 async def handle_user_callback(callback_query: types.CallbackQuery, data: str, state: FSMContext):
     """Обработка пользовательских callback-запросов"""
@@ -663,3 +829,40 @@ async def handle_location_callback(callback_query: types.CallbackQuery, action: 
     except Exception as e:
         logger.error(f"Ошибка обработки локации: {e}")
         await callback_query.answer("❌ Произошла ошибка")
+
+async def handle_admin_callback(callback_query: types.CallbackQuery, data: str):
+    """Обработка админских callback-запросов"""
+    try:
+        user_id = callback_query.from_user.id
+        
+        # Парсим callback data
+        parts = data.split(":")
+        if len(parts) >= 3:
+            action = parts[1]
+            subaction = parts[2]
+        else:
+            action = parts[1] if len(parts) > 1 else ""
+            subaction = ""
+        
+        # Обрабатываем через админ-панель
+        message, keyboard = await admin_panel.handle_callback(data, user_id)
+        
+        await callback_query.message.edit_text(
+            message,
+            reply_markup=keyboard,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        await callback_query.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка обработки админского callback: {e}")
+        await callback_query.answer("❌ Произошла ошибка")
+
+# Вспомогательные функции для клавиатур
+def get_back_to_main_keyboard():
+    """Клавиатура с кнопкой возврата в главное меню"""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main"))
+    return keyboard

@@ -151,15 +151,28 @@ class Database:
             await self.connection.commit()
     
     async def _init_default_locations(self):
-        """Инициализация базовых локаций"""
+        """Инициализация базовых локаций для военной части"""
         default_locations = [
-            ("🏢 Офис", "Главный офис"),
-            ("🏭 Производство", "Производственная площадка"),
-            ("🚗 В пути", "В командировке или в дороге"),
-            ("🏥 Больничный", "На больничном"),
+            ("🏢 В расположении", "В расположении воинской части"),
+            ("� Больничный", "На больничном"),
             ("🏖️ Отпуск", "В отпуске"),
-            ("📚 Обучение", "На обучении"),
-            ("🏠 Удаленка", "Удаленная работа")
+            ("📚 Обучение", "На обучении/курсах"),
+            ("🚗 Командировка", "В командировке"),
+            ("🏠 Увольнение", "В увольнении"),
+            ("⚖️ Суд", "В суде"),
+            ("🏛️ Военкомат", "В военкомате"),
+            ("🏥 Госпиталь", "В госпитале"),
+            ("📋 Служебная", "По служебной необходимости"),
+            ("🏠 Домой", "Домой по семейным обстоятельствам"),
+            ("🚑 Медицинская", "По медицинским показаниям"),
+            ("📝 Документы", "По документам"),
+            ("� Техобслуживание", "На техническом обслуживании"),
+            ("📊 Учения", "На учениях"),
+            ("🛡️ Караул", "В карауле"),
+            ("🏃 Наряд", "В наряде"),
+            ("📋 Дежурство", "В дежурстве"),
+            ("🚨 Тревога", "По тревоге"),
+            ("⚡ Срочная", "По срочному вызову")
         ]
         
         async with self.connection.cursor() as cursor:
@@ -391,8 +404,21 @@ class Database:
     async def get_user_status(self, telegram_id: int) -> Optional[str]:
         """Получение текущего статуса пользователя"""
         try:
-            user = await self.get_user(telegram_id)
-            return user['status'] if user else None
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT status, location FROM users WHERE telegram_id = ?
+                ''', (telegram_id,))
+                row = await cursor.fetchone()
+                
+                if row:
+                    status, location = row
+                    if status == 'present' and location == 'В расположении':
+                        return 'В расположении'
+                    elif status == 'absent':
+                        return f'Убыл в {location}' if location else 'Вне расположения'
+                    else:
+                        return 'В расположении'  # По умолчанию в расположении
+                return None
         except Exception as e:
             logger.error(f"Ошибка получения статуса пользователя: {e}")
             return None
@@ -622,50 +648,122 @@ class Database:
     
     # Методы для работы с отметками
     async def mark_attendance(self, telegram_id: int, location: str = None, note: str = None) -> Tuple[bool, str]:
-        """Отметка присутствия пользователя с валидацией"""
+        """Отметка прибытия в расположение части"""
         try:
+            # Получаем пользователя
             user = await self.get_user(telegram_id)
             if not user:
                 return False, "Пользователь не найден"
             
-            # Проверяем текущий статус
-            current_status = user.get('status', 'absent')
-            if current_status == 'present':
-                return False, "Вы уже отмечены как присутствующий"
+            today = date.today()
             
-            # Обновляем статус пользователя
-            success = await self.update_user_status(telegram_id, 'present', location, note)
-            if success:
-                return True, "Отметка о прибытии успешно зафиксирована"
-            else:
-                return False, "Ошибка при фиксации отметки"
+            # Проверяем, есть ли уже отметка за сегодня
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT status, location FROM attendance 
+                    WHERE user_id = ? AND date = ?
+                ''', (user['id'], today))
+                existing = await cursor.fetchone()
+            
+            if existing:
+                current_status, current_location = existing
+                if current_status == 'present' and current_location == 'В расположении':
+                    return False, "Вы уже отмечены в расположении"
+            
+            # Отмечаем прибытие в расположение
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    INSERT OR REPLACE INTO attendance (user_id, date, time, location, status, note)
+                    VALUES (?, ?, CURRENT_TIMESTAMP, ?, 'present', ?)
+                ''', (user['id'], today, 'В расположении', note))
                 
+                # Обновляем статус пользователя
+                await cursor.execute('''
+                    UPDATE users SET status = 'present', location = 'В расположении', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (user['id'],))
+                
+                # Логируем событие
+                await cursor.execute('''
+                    INSERT INTO attendance_log (user_id, action, location, note, timestamp)
+                    VALUES (?, 'arrived', 'В расположении', ?, CURRENT_TIMESTAMP)
+                ''', (user['id'], note))
+                
+                # Логируем событие
+                await self.log_event(user['id'], 'arrived', f"Прибыл в расположение части{f' - {note}' if note else ''}")
+            
+            await self.connection.commit()
+            
+            # Отправляем уведомления командирам
+            if self.notification_system:
+                await self.notification_system.send_arrival_notification(user['name'], 'В расположении', note)
+            
+            return True, "✅ Вы отмечены в расположении части"
+            
         except Exception as e:
-            logger.error(f"Ошибка отметки присутствия: {e}")
-            return False, f"Ошибка отметки: {str(e)}"
+            logger.error(f"Ошибка отметки прибытия: {e}")
+            return False, "Ошибка при отметке прибытия"
     
     async def mark_departure(self, telegram_id: int, location: str = None, note: str = None) -> Tuple[bool, str]:
-        """Отметка убытия пользователя с валидацией"""
+        """Отметка убытия из расположения части"""
         try:
+            # Получаем пользователя
             user = await self.get_user(telegram_id)
             if not user:
                 return False, "Пользователь не найден"
             
-            # Проверяем текущий статус
-            current_status = user.get('status', 'absent')
-            if current_status == 'absent':
-                return False, "Вы уже отмечены как отсутствующий"
+            # Если локация не указана, используем "Вне расположения"
+            if not location or location == 'В расположении':
+                location = 'Вне расположения'
             
-            # Обновляем статус пользователя
-            success = await self.update_user_status(telegram_id, 'absent', location, note)
-            if success:
-                return True, "Отметка об убытии успешно зафиксирована"
-            else:
-                return False, "Ошибка при фиксации отметки"
+            today = date.today()
+            
+            # Проверяем, есть ли уже отметка за сегодня
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT status, location FROM attendance 
+                    WHERE user_id = ? AND date = ?
+                ''', (user['id'], today))
+                existing = await cursor.fetchone()
+            
+            if existing:
+                current_status, current_location = existing
+                if current_status == 'absent' and current_location != 'В расположении':
+                    return False, f"Вы уже отмечены убывшим в {current_location}"
+            
+            # Отмечаем убытие из расположения
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    INSERT OR REPLACE INTO attendance (user_id, date, time, location, status, note)
+                    VALUES (?, ?, CURRENT_TIMESTAMP, ?, 'absent', ?)
+                ''', (user['id'], today, location, note))
                 
+                # Обновляем статус пользователя
+                await cursor.execute('''
+                    UPDATE users SET status = 'absent', location = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (location, user['id'],))
+                
+                # Логируем событие
+                await cursor.execute('''
+                    INSERT INTO attendance_log (user_id, action, location, note, timestamp)
+                    VALUES (?, 'left', ?, ?, CURRENT_TIMESTAMP)
+                ''', (user['id'], location, note))
+                
+                # Логируем событие
+                await self.log_event(user['id'], 'left', f"Убыл в {location}{f' - {note}' if note else ''}")
+            
+            await self.connection.commit()
+            
+            # Отправляем уведомления командирам
+            if self.notification_system:
+                await self.notification_system.send_departure_notification(user['name'], location, note)
+            
+            return True, f"✅ Вы отмечены убывшим в {location}"
+            
         except Exception as e:
             logger.error(f"Ошибка отметки убытия: {e}")
-            return False, f"Ошибка отметки: {str(e)}"
+            return False, "Ошибка при отметке убытия"
     
     async def get_attendance_today(self) -> List[Dict]:
         """Получение отметок за сегодня"""
