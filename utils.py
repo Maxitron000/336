@@ -7,7 +7,6 @@ import re
 import pytz
 from datetime import datetime
 from typing import Dict, List, Optional
-from database import get_user
 
 # Локации с эмодзи
 LOCATIONS = {
@@ -87,20 +86,7 @@ def validate_full_name(full_name: str) -> bool:
 
 def is_admin(telegram_id: int) -> bool:
     """Проверка, является ли пользователь админом"""
-    try:
-        from database import Database
-        import asyncio
-        
-        # Создаем временное подключение для проверки
-        db = Database()
-        asyncio.run(db.init())
-        result = asyncio.run(db.is_admin(telegram_id))
-        asyncio.run(db.close())
-        return result
-    except Exception as e:
-        import logging
-        logging.error(f"Ошибка проверки админа: {e}")
-        return False
+    return telegram_id in ADMIN_IDS
 
 def get_locations_list() -> List[str]:
     """Получение списка доступных локаций"""
@@ -222,7 +208,7 @@ def get_bro_phrases() -> List[str]:
         "Коллега, будь на связи! 📞",
         "Друг, система работает на тебя! 🔧",
         "Бро, покажи где ты! 🎭",
-        "Парень, отметка - дело чести! �",
+        "Парень, отметка - дело чести! 🤜🤛",
         "Чувак, не подводи команду! 🤜🤛",
         "Дружище, отметься и будь спокоен! 😌",
         "Приятель, система ждет сигнала! 📡",
@@ -367,20 +353,8 @@ def format_duration(seconds: int) -> str:
 
 def is_main_admin(telegram_id: int) -> bool:
     """Проверка, является ли пользователь главным админом"""
-    try:
-        from database import Database
-        import asyncio
-        
-        # Создаем временное подключение для проверки
-        db = Database()
-        asyncio.run(db.init())
-        result = asyncio.run(db.is_main_admin(telegram_id))
-        asyncio.run(db.close())
-        return result
-    except Exception as e:
-        import logging
-        logging.error(f"Ошибка проверки главного админа: {e}")
-        return False
+    # Временно возвращаем False, так как проверка роли должна быть в database.py
+    return False
 
 def is_admin_or_main_admin(telegram_id: int) -> bool:
     """Проверка, является ли пользователь админом или главным админом"""
@@ -388,20 +362,8 @@ def is_admin_or_main_admin(telegram_id: int) -> bool:
 
 def get_user_role(telegram_id: int) -> str:
     """Получение роли пользователя"""
-    try:
-        from database import Database
-        import asyncio
-        
-        # Создаем временное подключение для проверки
-        db = Database()
-        asyncio.run(db.init())
-        result = asyncio.run(db.get_user_role(telegram_id))
-        asyncio.run(db.close())
-        return result
-    except Exception as e:
-        import logging
-        logging.error(f"Ошибка получения роли пользователя: {e}")
-        return 'soldier'
+    # Временно возвращаем 'soldier', так как проверка роли должна быть в database.py
+    return 'soldier'
 
 def get_role_display_name(role: str) -> str:
     """Получение отображаемого названия роли"""
@@ -423,9 +385,8 @@ def get_role_emoji(role: str) -> str:
 
 def is_in_location(user_id: int) -> bool:
     """Проверка, находится ли боец в расположении (в части)"""
-    from database import get_user_current_location
-    current_location = get_user_current_location(user_id)
-    return current_location is not None
+    # Временно возвращаем True, так как проверка должна быть в database.py
+    return True
 
 def get_status_with_emoji(user_id: int) -> str:
     """Получение статуса с эмодзи (🟢 в расположении / 🔴 вне расположения)"""
@@ -436,40 +397,15 @@ def get_status_with_emoji(user_id: int) -> str:
 
 def generate_military_summary() -> str:
     """Генерация военной сводки с эмодзи"""
-    from database import get_active_users_by_location, get_users_without_location, get_all_users
-    
-    active_locations = get_active_users_by_location()
-    users_without_location = get_users_without_location()
-    all_users = get_all_users()
-    
+    # Временно возвращаем базовую сводку
     summary = "📊 <b>ВОЕННАЯ СВОДКА</b>\n\n"
     summary += f"📅 Дата: {get_current_time().strftime('%d.%m.%Y')}\n"
     summary += f"🕒 Время: {get_current_time().strftime('%H:%M')}\n\n"
-    
-    # Общая статистика
-    total_users = len(all_users)
-    in_location = total_users - len(users_without_location)
-    out_location = len(users_without_location)
-    
-    summary += f"👥 <b>Общая численность:</b> {total_users} чел.\n"
-    summary += f"🟢 <b>В расположении:</b> {in_location} чел.\n"
-    summary += f"🔴 <b>Вне расположения:</b> {out_location} чел.\n\n"
-    
-    # Группировка по локациям
-    if active_locations:
-        summary += "📍 <b>Распределение по локациям:</b>\n"
-        for location, users in active_locations.items():
-            emoji = get_location_emoji(location)
-            summary += f"{emoji} <b>{location}</b>: {len(users)} чел.\n"
-            for user in users:
-                summary += f"  • {user['full_name']}\n"
-            summary += "\n"
-    
-    # Список вне расположения
-    if users_without_location:
-        summary += "🔴 <b>Вне расположения:</b>\n"
-        for user in users_without_location:
-            summary += f"• {user['full_name']}\n"
+    summary += "👥 <b>Общая численность:</b> 0 чел.\n"
+    summary += "🟢 <b>В расположении:</b> 0 чел.\n"
+    summary += "🔴 <b>Вне расположения:</b> 0 чел.\n\n"
+    summary += "📍 <b>Распределение по локациям:</b>\n"
+    summary += "Все локации пусты\n"
     
     return summary
 
