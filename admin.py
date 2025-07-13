@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+THIS SHOULD BE A LINTER ERRORfrom telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 from database import get_all_users, get_all_logs, clear_logs, get_daily_stats
 from keyboards import (
@@ -9,7 +9,7 @@ from keyboards import (
     admin_manage_users_keyboard,
     admin_back_keyboard
 )
-from utils import format_datetime, get_today_date, is_action_allowed
+from utils import format_datetime, get_today_date, is_action_allowed, get_current_time
 from export import export_to_csv, export_to_excel, export_to_pdf
 import sqlite3
 import os
@@ -174,6 +174,42 @@ def handle_admin_callback(update: Update, context: CallbackContext):
                 reply_markup=admin_back_keyboard()
             )
 
+    elif data == 'danger_mark_all_arrived':
+        query.edit_message_text(
+            "🏠 Вы уверены, что хотите отметить всех прибывшими?\n"
+            "Все пользователи будут помечены как 'В расположении'!",
+            reply_markup=confirm_danger_keyboard('mark_all_arrived')
+        )
+
+    elif data == 'confirm_mark_all_arrived':
+        try:
+            updated_count = mark_all_arrived()
+            query.edit_message_text(
+                f"✅ Отметка о прибытии выполнена!\n"
+                f"Обновлено статусов: {updated_count}",
+                reply_markup=admin_back_keyboard()
+            )
+            
+            # Уведомляем админов о массовом действии
+            admin_message = (
+                f"🏠 Массовая отметка о прибытии!\n"
+                f"👑 Выполнил: {query.from_user.full_name}\n"
+                f"📊 Обновлено: {updated_count} пользователей\n"
+                f"⏰ Время: {format_datetime(get_current_time())}"
+            )
+            
+            # Отправляем уведомление всем админам
+            from notifications import notify_admins
+            from telegram import Bot
+            bot = Bot(token=query.bot.token)
+            notify_admins(bot, admin_message)
+            
+        except Exception as e:
+            query.edit_message_text(
+                f"❌ Ошибка отметки прибытия: {str(e)}",
+                reply_markup=admin_back_keyboard()
+            )
+
 def is_admin(tg_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -188,3 +224,39 @@ def reset_all_statuses():
     cursor.execute("UPDATE users SET status = 'unknown', location = ''")
     conn.commit()
     conn.close()
+
+def mark_all_arrived():
+    """Отмечает всех пользователей как прибывших в расположение"""
+    
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # Получаем всех пользователей
+    cursor.execute("SELECT id, full_name, status FROM users")
+    users = cursor.fetchall()
+    
+    current_time = get_current_time()
+    updated_count = 0
+    
+    for user_id, full_name, current_status in users:
+        # Обновляем статус только если он не "В расположении"
+        if current_status != 'В расположении':
+            # Обновляем статус пользователя
+            cursor.execute("""
+                UPDATE users 
+                SET status = 'В расположении', location = '', last_action = ?
+                WHERE id = ?
+            """, (current_time, user_id))
+            
+            # Добавляем запись в лог
+            cursor.execute("""
+                INSERT INTO logs (user_id, action, location, comment, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, "Прибыл", "В расположение", "Массовая отметка админом", current_time))
+            
+            updated_count += 1
+    
+    conn.commit()
+    conn.close()
+    
+    return updated_count

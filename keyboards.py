@@ -84,7 +84,8 @@ def admin_danger_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🗑️ Очистить журнал", callback_data='danger_clear_logs')],
         [InlineKeyboardButton("♻️ Сбросить статусы", callback_data='danger_reset_statuses')],
-        [InlineKeyboardButton("« Назад", callback_data='admin_danger')]
+        [InlineKeyboardButton("🏠 Отметить всех прибывшими", callback_data='danger_mark_all_arrived')],
+        [InlineKeyboardButton("« Назад", callback_data='admin_back')]
     ])
 
 def confirm_danger_keyboard(action):
