@@ -73,6 +73,8 @@ async def handle_admin_callback_v2(update: Update, context: ContextTypes.DEFAULT
             await handle_settings_command(update, context, parts)
         elif command == "danger":
             await handle_danger_zone_command(update, context, parts)
+        elif command == "mass_notification":
+            await show_mass_notification_menu(update, context)
         else:
             await query.edit_message_text(
                 "❌ Неизвестная команда.",
@@ -102,32 +104,10 @@ async def show_admin_main_v2(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """📊 Быстрая сводка - показывает кто отсутствует с группировкой по локациям"""
-    active_locations = get_active_users_by_location()
-    users_without_location = get_users_without_location()
+    """📊 Быстрая сводка - показывает кто в расположении/вне расположения с группировкой по локациям"""
+    from utils import generate_military_summary
     
-    dashboard_text = "📊 <b>Быстрая сводка</b>\n\n"
-    
-    # Показываем отсутствующих
-    if users_without_location:
-        dashboard_text += "❌ <b>Отсутствуют:</b>\n"
-        for user in users_without_location:
-            dashboard_text += f"• {user['full_name']}\n"
-        dashboard_text += "\n"
-    else:
-        dashboard_text += "✅ <b>Все бойцы на месте!</b>\n\n"
-    
-    # Показываем группировку по локациям
-    if active_locations:
-        dashboard_text += "📍 <b>Распределение по локациям:</b>\n"
-        for location, users in active_locations.items():
-            emoji = get_location_emoji(location)
-            dashboard_text += f"{emoji} <b>{location}</b>: {len(users)} чел.\n"
-            for user in users[:3]:  # Показываем первые 3 имени
-                dashboard_text += f"  • {user['full_name']}\n"
-            if len(users) > 3:
-                dashboard_text += f"  ... и еще {len(users) - 3}\n"
-            dashboard_text += "\n"
+    dashboard_text = generate_military_summary()
     
     await update.callback_query.edit_message_text(
         dashboard_text,
@@ -475,3 +455,98 @@ async def confirm_delete_all_users(update: Update, context: ContextTypes.DEFAULT
         parse_mode='HTML',
         reply_markup=get_back_keyboard("admin:danger")
     )
+
+async def show_mass_notification_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать меню массовых уведомлений"""
+    # Проверяем права главного админа
+    user_id = update.callback_query.from_user.id
+    if not is_admin(user_id): # Changed from is_main_admin to is_admin
+        await update.callback_query.edit_message_text(
+            "❌ Только главный админ может отправлять массовые уведомления.",
+            reply_markup=get_back_keyboard("admin:main")
+        )
+        return
+    
+    notification_text = "📢 <b>Массовые уведомления</b>\n\n"
+    notification_text += "Отправка уведомления всем бойцам вне расположения.\n\n"
+    notification_text += "Введите текст уведомления:"
+    
+    context.user_data['waiting_for_mass_notification'] = True
+    
+    await update.callback_query.edit_message_text(
+        notification_text,
+        parse_mode='HTML',
+        reply_markup=get_cancel_keyboard()
+    )
+
+async def handle_mass_notification_input(update: Update, context: ContextTypes.DEFAULT_TYPE, message_text: str):
+    """Обработка ввода текста массового уведомления"""
+    user_id = update.effective_user.id
+    
+    # Проверяем права главного админа
+    if not is_admin(user_id): # Changed from is_main_admin to is_admin
+        await update.message.reply_text(
+            "❌ У вас нет прав для отправки массовых уведомлений.",
+            reply_markup=get_admin_keyboard() # Changed from get_main_keyboard to get_admin_keyboard
+        )
+        return
+    
+    # Ограничиваем длину сообщения
+    if len(message_text) > 1000:
+        await update.message.reply_text(
+            "❌ Слишком длинное сообщение. Максимум 1000 символов.",
+            reply_markup=get_admin_keyboard() # Changed from get_main_keyboard to get_admin_keyboard
+        )
+        return
+    
+    # Получаем бойцов вне расположения
+    users_without_location = get_users_without_location()
+    
+    if not users_without_location:
+        await update.message.reply_text(
+            "✅ Все бойцы в расположении. Массовое уведомление не требуется.",
+            reply_markup=get_admin_keyboard() # Changed from get_main_keyboard to get_admin_keyboard
+        )
+        return
+    
+    # Формируем уведомление
+    notification_text = f"📢 <b>ВАЖНОЕ УВЕДОМЛЕНИЕ</b>\n\n"
+    notification_text += f"{message_text}\n\n"
+    notification_text += f"⏰ Время: {get_current_time().strftime('%H:%M')}\n"
+    notification_text += f"👤 Отправитель: {get_user(user_id)['full_name']}"
+    
+    # Отправляем уведомления
+    sent_count = 0
+    failed_count = 0
+    
+    for user in users_without_location:
+        try:
+            await context.bot.send_message(
+                chat_id=user['telegram_id'],
+                text=notification_text,
+                parse_mode='HTML'
+            )
+            sent_count += 1
+            await asyncio.sleep(0.5)  # Задержка между отправками
+        except Exception as e:
+            logger.error(f"Ошибка отправки массового уведомления пользователю {user['telegram_id']}: {e}")
+            failed_count += 1
+    
+    # Отчет об отправке
+    report_text = f"📢 <b>Массовое уведомление отправлено</b>\n\n"
+    report_text += f"✅ Успешно отправлено: {sent_count} чел.\n"
+    if failed_count > 0:
+        report_text += f"❌ Ошибок отправки: {failed_count} чел.\n"
+    report_text += f"📝 Текст: {message_text[:100]}{'...' if len(message_text) > 100 else ''}"
+    
+    await update.message.reply_text(
+        report_text,
+        parse_mode='HTML',
+        reply_markup=get_admin_keyboard() # Changed from get_main_keyboard to get_admin_keyboard
+    )
+    
+    # Логируем действие
+    add_admin_log(user_id, "mass_notification", details=f"Отправлено {sent_count} уведомлений: {message_text[:50]}...")
+    
+    # Очищаем состояние
+    context.user_data.clear()

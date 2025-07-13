@@ -18,18 +18,31 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Таблица пользователей
+    # Таблица пользователей с системой ролей
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY,
             telegram_id INTEGER UNIQUE NOT NULL,
             full_name TEXT NOT NULL,
             username TEXT,
-            is_admin INTEGER DEFAULT 0,
+            role TEXT DEFAULT 'soldier' CHECK (role IN ('soldier', 'admin', 'main_admin')),
             registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    
+    # Добавляем колонку role если её нет (для обратной совместимости)
+    cursor.execute("PRAGMA table_info(users)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if 'role' not in columns:
+        cursor.execute('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "soldier"')
+        # Обновляем существующих админов
+        cursor.execute('UPDATE users SET role = "admin" WHERE is_admin = 1')
+    
+    # Добавляем колонку is_admin если её нет (для обратной совместимости)
+    if 'is_admin' not in columns:
+        cursor.execute('ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0')
+        cursor.execute('UPDATE users SET is_admin = 1 WHERE role IN ("admin", "main_admin")')
     
     # Таблица записей о местоположении
     cursor.execute('''
@@ -82,16 +95,22 @@ def close_db():
     pass  # SQLite не требует явного закрытия
 
 # Функции для работы с пользователями
-def add_user(telegram_id: int, full_name: str, username: str = None) -> bool:
-    """Добавление нового пользователя"""
+def add_user(telegram_id: int, full_name: str, username: str = None, role: str = 'soldier') -> bool:
+    """Добавление нового пользователя с ролью"""
+    if role not in ['soldier', 'admin', 'main_admin']:
+        role = 'soldier'
+    
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Определяем статус админа
+        is_admin = 1 if role in ['admin', 'main_admin'] else 0
+        
         cursor.execute('''
-            INSERT INTO users (telegram_id, full_name, username)
-            VALUES (?, ?, ?)
-        ''', (telegram_id, full_name, username))
+            INSERT INTO users (telegram_id, full_name, username, role, is_admin)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (telegram_id, full_name, username, role, is_admin))
         
         conn.commit()
         conn.close()
@@ -138,19 +157,75 @@ def update_user_activity(telegram_id: int):
     conn.commit()
     conn.close()
 
-def set_admin_status(telegram_id: int, is_admin: bool):
-    """Установка статуса администратора"""
+def set_user_role(telegram_id: int, role: str) -> bool:
+    """Установка роли пользователя (soldier, admin, main_admin)"""
+    if role not in ['soldier', 'admin', 'main_admin']:
+        return False
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Обновляем роль и статус админа
+        is_admin = 1 if role in ['admin', 'main_admin'] else 0
+        
+        cursor.execute('''
+            UPDATE users 
+            SET role = ?, is_admin = ?
+            WHERE telegram_id = ?
+        ''', (role, is_admin, telegram_id))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+def get_user_role(telegram_id: int) -> str:
+    """Получение роли пользователя"""
+    user = get_user(telegram_id)
+    if user:
+        return user.get('role', 'soldier')
+    return 'soldier'
+
+def is_main_admin(telegram_id: int) -> bool:
+    """Проверка является ли пользователь главным админом"""
+    return get_user_role(telegram_id) == 'main_admin'
+
+def is_admin_or_main_admin(telegram_id: int) -> bool:
+    """Проверка является ли пользователь админом или главным админом"""
+    role = get_user_role(telegram_id)
+    return role in ['admin', 'main_admin']
+
+def get_all_admins() -> List[Dict[str, Any]]:
+    """Получение всех админов и главных админов"""
     conn = get_db_connection()
     cursor = conn.cursor()
     
     cursor.execute('''
-        UPDATE users 
-        SET is_admin = ? 
-        WHERE telegram_id = ?
-    ''', (1 if is_admin else 0, telegram_id))
+        SELECT * FROM users 
+        WHERE role IN ('admin', 'main_admin') 
+        ORDER BY role DESC, full_name
+    ''')
+    admins = cursor.fetchall()
     
-    conn.commit()
     conn.close()
+    return [dict(admin) for admin in admins]
+
+def get_main_admins() -> List[Dict[str, Any]]:
+    """Получение всех главных админов"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT * FROM users 
+        WHERE role = 'main_admin' 
+        ORDER BY full_name
+    ''')
+    main_admins = cursor.fetchall()
+    
+    conn.close()
+    return [dict(admin) for admin in main_admins]
 
 def delete_user(telegram_id: int) -> bool:
     """Удаление пользователя"""

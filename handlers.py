@@ -246,12 +246,23 @@ async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_search_input(update, context, text)
         return
     
+    # Проверяем, ожидаем ли мы ввод кастомной локации
+    if context.user_data.get('waiting_for_custom_location'):
+        await handle_custom_location_input(update, context, text)
+        return
+    
+    # Проверяем, ожидаем ли мы ввод массового уведомления
+    if context.user_data.get('waiting_for_mass_notification'):
+        from admin_v2 import handle_mass_notification_input
+        await handle_mass_notification_input(update, context, text)
+        return
+    
     # Обработка кнопок главного меню
     if text == "📍 Отметить местоположение":
         await handle_location_request(update, context)
     elif text == "📊 Мой статус":
         await status_command(update, context)
-    elif text == "📋 Справка":
+    elif text == "❓ Справка":
         await help_command(update, context)
     elif text == "🔧 Админ-панель":
         await admin_command(update, context)
@@ -427,6 +438,19 @@ async def handle_action_callback(update: Update, context: ContextTypes.DEFAULT_T
     location = parts[2]
     user_id = update.callback_query.from_user.id
     
+    # Если выбрана локация "Другое" и действие "убыл", запрашиваем ручной ввод
+    if location == "📝 Другое" and action == "left":
+        context.user_data['waiting_for_custom_location'] = True
+        context.user_data['pending_action'] = action
+        
+        await update.callback_query.edit_message_text(
+            "📝 <b>Укажите место убытия:</b>\n\n"
+            "Введите название места, куда вы убываете:",
+            parse_mode='HTML',
+            reply_markup=get_cancel_keyboard()
+        )
+        return
+    
     # Проверяем валидность действия
     if action not in ['arrived', 'left']:
         await update.callback_query.edit_message_text(
@@ -551,3 +575,66 @@ async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_T
         "Используйте кнопки меню или /help для справки.",
         reply_markup=get_main_keyboard()
     )
+
+async def handle_custom_location_input(update: Update, context: ContextTypes.DEFAULT_TYPE, custom_location: str):
+    """Обработка ввода кастомной локации для убытия"""
+    user_id = update.effective_user.id
+    action = context.user_data.get('pending_action')
+    
+    # Очищаем состояние
+    context.user_data.clear()
+    
+    # Проверяем, что действие - убытие
+    if action != 'left':
+        await update.message.reply_text(
+            "❌ Ошибка: неверное действие.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    # Ограничиваем длину названия локации
+    if len(custom_location) > 50:
+        await update.message.reply_text(
+            "❌ Слишком длинное название места. Максимум 50 символов.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    # Очищаем от лишних символов
+    custom_location = custom_location.strip()
+    if not custom_location:
+        await update.message.reply_text(
+            "❌ Название места не может быть пустым.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+    
+    # Записываем действие в базу
+    if add_location_log(user_id, custom_location, action):
+        user = get_user(user_id)
+        current_time = get_current_time()
+        time_str = current_time.strftime("%H:%M")
+        
+        success_text = f"🔴 <b>{user['full_name']}</b> убыл в <b>{custom_location}</b>\n"
+        success_text += f"🕒 Время: {time_str}\n\n"
+        success_text += f"📍 Статус: <b>Вне расположения</b>"
+        
+        await update.message.reply_text(
+            success_text,
+            parse_mode='HTML',
+            reply_markup=get_main_keyboard()
+        )
+        
+        logger.info(f"Пользователь {user['full_name']} (ID: {user_id}) убыл в {custom_location}")
+        
+        # Отправляем уведомление админам о действии пользователя
+        try:
+            from notifications_v2 import notify_about_user_action_v2
+            await notify_about_user_action_v2(context.bot, user, action, custom_location)
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления о действии: {e}")
+    else:
+        await update.message.reply_text(
+            "❌ Ошибка при записи действия. Попробуйте еще раз.",
+            reply_markup=get_main_keyboard()
+        )

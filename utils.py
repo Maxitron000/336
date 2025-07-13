@@ -20,7 +20,8 @@ LOCATIONS = {
     "⚙️ Рабочка": "⚙️",
     "🩺 ВВК": "🩺",
     "🏛️ МФЦ": "🏛️",
-    "🚓 Патруль": "🚓"
+    "🚓 Патруль": "🚓",
+    "📝 Другое": "📝"
 }
 
 # Список администраторов из переменных окружения
@@ -357,3 +358,127 @@ def format_duration(seconds: int) -> str:
             return f"{hours} ч."
         else:
             return f"{hours} ч. {minutes} мин."
+
+def is_main_admin(telegram_id: int) -> bool:
+    """Проверка, является ли пользователь главным админом"""
+    from database import get_user_role
+    return get_user_role(telegram_id) == 'main_admin'
+
+def is_admin_or_main_admin(telegram_id: int) -> bool:
+    """Проверка, является ли пользователь админом или главным админом"""
+    from database import get_user_role
+    role = get_user_role(telegram_id)
+    return role in ['admin', 'main_admin']
+
+def get_user_role(telegram_id: int) -> str:
+    """Получение роли пользователя"""
+    from database import get_user_role as db_get_user_role
+    return db_get_user_role(telegram_id)
+
+def get_role_display_name(role: str) -> str:
+    """Получение отображаемого названия роли"""
+    role_names = {
+        'soldier': 'Боец',
+        'admin': 'Админ',
+        'main_admin': 'Главный админ'
+    }
+    return role_names.get(role, 'Неизвестно')
+
+def get_role_emoji(role: str) -> str:
+    """Получение эмодзи для роли"""
+    role_emojis = {
+        'soldier': '👤',
+        'admin': '👑',
+        'main_admin': '👑'
+    }
+    return role_emojis.get(role, '❓')
+
+def is_in_location(user_id: int) -> bool:
+    """Проверка, находится ли боец в расположении (в части)"""
+    from database import get_user_current_location
+    current_location = get_user_current_location(user_id)
+    return current_location is not None
+
+def get_status_with_emoji(user_id: int) -> str:
+    """Получение статуса с эмодзи (🟢 в расположении / 🔴 вне расположения)"""
+    if is_in_location(user_id):
+        return "🟢 В расположении"
+    else:
+        return "🔴 Вне расположения"
+
+def generate_military_summary() -> str:
+    """Генерация военной сводки с эмодзи"""
+    from database import get_active_users_by_location, get_users_without_location, get_all_users
+    
+    active_locations = get_active_users_by_location()
+    users_without_location = get_users_without_location()
+    all_users = get_all_users()
+    
+    summary = "📊 <b>ВОЕННАЯ СВОДКА</b>\n\n"
+    summary += f"📅 Дата: {get_current_time().strftime('%d.%m.%Y')}\n"
+    summary += f"🕒 Время: {get_current_time().strftime('%H:%M')}\n\n"
+    
+    # Общая статистика
+    total_users = len(all_users)
+    in_location = total_users - len(users_without_location)
+    out_location = len(users_without_location)
+    
+    summary += f"👥 <b>Общая численность:</b> {total_users} чел.\n"
+    summary += f"🟢 <b>В расположении:</b> {in_location} чел.\n"
+    summary += f"🔴 <b>Вне расположения:</b> {out_location} чел.\n\n"
+    
+    # Группировка по локациям
+    if active_locations:
+        summary += "📍 <b>Распределение по локациям:</b>\n"
+        for location, users in active_locations.items():
+            emoji = get_location_emoji(location)
+            summary += f"{emoji} <b>{location}</b>: {len(users)} чел.\n"
+            for user in users:
+                summary += f"  • {user['full_name']}\n"
+            summary += "\n"
+    
+    # Список вне расположения
+    if users_without_location:
+        summary += "🔴 <b>Вне расположения:</b>\n"
+        for user in users_without_location:
+            summary += f"• {user['full_name']}\n"
+    
+    return summary
+
+def generate_location_summary_with_emojis(locations_data: Dict) -> str:
+    """Генерация сводки по локациям с эмодзи статусов"""
+    if not locations_data:
+        return "📍 <b>Все локации пусты</b>\n"
+    
+    summary = "📍 <b>Текущее распределение по локациям:</b>\n\n"
+    
+    for location, users in locations_data.items():
+        emoji = get_location_emoji(location)
+        summary += f"{emoji} <b>{location}</b> ({len(users)} чел.)\n"
+        
+        for user in users:
+            entered_time = format_datetime(user['entered_at'], 'time')
+            summary += f"  🟢 {user['full_name']} ({entered_time})\n"
+        
+        summary += "\n"
+    
+    return summary
+
+def get_action_emoji_military(action: str) -> str:
+    """Получение военного эмодзи для действия"""
+    if action == 'arrived':
+        return '🟢'  # Зеленый кружок для прибытия
+    elif action == 'left':
+        return '🔴'  # Красный кружок для убытия
+    else:
+        return '❓'
+
+def generate_log_entry_military(log_data: Dict) -> str:
+    """Генерация записи лога с военными эмодзи"""
+    action_emoji = get_action_emoji_military(log_data['action'])
+    location_emoji = get_location_emoji(log_data['location'])
+    timestamp = format_datetime(log_data['timestamp'], 'short')
+    
+    action_text = "прибыл" if log_data['action'] == 'arrived' else "убыл"
+    
+    return f"{action_emoji} <b>{log_data['full_name']}</b> {action_text} {location_emoji} <b>{log_data['location']}</b> | {timestamp}"

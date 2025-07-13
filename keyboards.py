@@ -61,6 +61,9 @@ def get_admin_keyboard():
             InlineKeyboardButton("📖 Журнал событий", callback_data="admin:journal"),
             InlineKeyboardButton("⚙️ Настройки", callback_data="admin:settings")
         ],
+        [
+            InlineKeyboardButton("📢 Массовое уведомление", callback_data="admin:mass_notification")
+        ],
         [InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]
     ]
     return InlineKeyboardMarkup(keyboard)
