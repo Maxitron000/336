@@ -277,11 +277,18 @@ def get_maintenance_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_maintenance_confirmation_keyboard(maintenance_type: str):
-    """Клавиатура подтверждения техобслуживания"""
+    """Клавиатура подтверждения технического обслуживания"""
+    keyboard = [
+        [InlineKeyboardButton(f"✅ Да, выполнить {maintenance_type}", callback_data=admin_cb.new("maintenance_confirm", maintenance_type))]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_initial_status_keyboard():
+    """Клавиатура выбора начального статуса при регистрации"""
     keyboard = [
         [
-            InlineKeyboardButton("✅ Подтвердить ТО", callback_data=admin_cb.new("maintenance_confirm", maintenance_type)),
-            InlineKeyboardButton("❌ Отменить", callback_data=admin_cb.new("maintenance", ""))
+            InlineKeyboardButton("🏠 В части", callback_data=user_cb.new("initial_status_in_unit")),
+            InlineKeyboardButton("🚪 Вне части", callback_data=user_cb.new("initial_status_away"))
         ]
     ]
     return InlineKeyboardMarkup(keyboard)

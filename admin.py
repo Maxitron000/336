@@ -179,11 +179,8 @@ class AdminPanel:
                 status_emoji = "❓"
                 location_text = "неизвестно"
             
-            # Кликабельная ссылка на Telegram
-            tg_link = f"<a href=\"tg://user?id={user['telegram_id']}\">{user['telegram_id']}</a>"
-            
             message += f"{status_emoji} *{user['name']}*\n"
-            message += f"   └ 📱 ID: {tg_link}\n"
+            message += f"   └ 📱 ID: {user['telegram_id']}\n"
             message += f"   └ 📍 {location_text}\n\n"
         
         return message
@@ -452,8 +449,24 @@ class AdminPanel:
                 
             elif action == "personnel":
                 if subaction == "list_users":
-                    users = await self.get_users_list()
-                    message = await self.format_users_list(users)
+                    users, page, total_pages = await self.get_users_list(1)
+                    message = await self.format_users_list(users, page, total_pages)
+                    keyboard = self.get_users_pagination_keyboard(page, total_pages)
+                    return message, keyboard
+                elif subaction.startswith("list_users_"):
+                    # Обработка пагинации
+                    try:
+                        page_num = int(subaction.split("_")[-1])
+                        users, page, total_pages = await self.get_users_list(page_num)
+                        message = await self.format_users_list(users, page, total_pages)
+                        keyboard = self.get_users_pagination_keyboard(page, total_pages)
+                        return message, keyboard
+                    except:
+                        # Если не удалось распарсить номер страницы, показываем первую
+                        users, page, total_pages = await self.get_users_list(1)
+                        message = await self.format_users_list(users, page, total_pages)
+                        keyboard = self.get_users_pagination_keyboard(page, total_pages)
+                        return message, keyboard
                 else:
                     message = "👥 *Управление личным составом*\n\nВыберите действие:"
                 keyboard = await self.get_keyboard_for_action("personnel")
