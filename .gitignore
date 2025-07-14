@@ -45,6 +45,9 @@ env/
 ENV/
 .venv/
 .env/
+*_venv/
+test_venv/
+venv_bot/
 
 # IDE
 .vscode/
@@ -67,3 +70,18 @@ Thumbs.db
 # Файлы с токенами
 token.txt
 bot_token.txt
+
+# Экспорты и временные данные
+exports/
+temp/
+cache/
+
+# Тестовые файлы
+test_*.py
+*_test.py
+pytest_cache/
+.pytest_cache/
+
+# Системные файлы
+.DS_Store
+*.pid
