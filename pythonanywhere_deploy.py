@@ -162,32 +162,46 @@ def print_deployment_instructions(username, task_info):
     print("📋 ИНСТРУКЦИИ ПО РАЗВЁРТЫВАНИЮ")
     print("=" * 60)
     
-    print("\n🚀 1. АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК:")
-    print("\nВариант A - Scheduled Task (рекомендуется):")
+    print("\n🚀 1. АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК (24/7):")
+    print("\nВариант A - Scheduled Task (рекомендуется для 24/7):")
     for instruction in task_info["instructions"]:
         print(f"  {instruction}")
     
     print(f"\nВариант B - Bash скрипт:")
     print(f"  Команда: {task_info['bash_script']}")
     
-    print(f"\nВариант C - Cron альтернатива (для бесплатного аккаунта):")
-    print(f"  python cron_alternative.py")
+    print(f"\nВариант C - Новый 24/7 раннер (оптимальный):")
+    print(f"  python pythonanywhere_24_7.py  # Простая настройка")
+    print(f"  python pa_24_7_runner.py       # Оптимизированный запуск")
     
-    print("\n📊 2. МОНИТОРИНГ:")
-    print("  - Логи: tail -f logs/bot.log")
+    print("\n📊 2. МОНИТОРИНГ 24/7:")
+    print("  - Логи 24/7: tail -f logs/bot_24_7.log")
+    print("  - Основные логи: tail -f logs/bot.log")
+    print("  - Scheduled Task: tail -f logs/scheduled_task.log")
     print("  - Мониторинг: python auto_monitor.py")
-    print("  - Статус: ps aux | grep python")
+    print("  - Статус: ps aux | grep pa_24_7_runner")
+    print("  - Ресурсы: top -p $(pgrep -f pa_24_7_runner)")
     
-    print("\n🔧 3. УПРАВЛЕНИЕ:")
-    print("  - Запуск: python start.py")
-    print("  - Остановка: pkill -f run_bot.py")
-    print("  - Перезапуск: ./start_pa.sh")
+    print("\n🔧 3. УПРАВЛЕНИЕ 24/7:")
+    print("  - Быстрая настройка: python pythonanywhere_24_7.py")
+    print("  - Запуск 24/7: python pa_24_7_runner.py")
+    print("  - Запуск через скрипт: ./start_pa_24_7.sh")
+    print("  - Остановка: pkill -f pa_24_7_runner")
+    print("  - Статус: ps aux | grep pa_24_7")
     
     print("\n📂 4. ФАЙЛЫ:")
     print("  - Конфигурация: .env")
     print("  - База данных: data/bot_database.db")
-    print("  - Логи: logs/")
+    print("  - Логи 24/7: logs/bot_24_7.log")
+    print("  - Логи Scheduled Task: logs/scheduled_task.log")
     print("  - Экспорт: exports/")
+    print("  - Гид по установке: INSTALLATION_GUIDE.md")
+    
+    print("\n⚡ 5. ОСОБЕННОСТИ 24/7:")
+    print("  🔄 Автоперезапуск каждые 55 минут")
+    print("  📊 Отчеты о здоровье каждые 6 часов")
+    print("  🚨 Мгновенные уведомления об ошибках")
+    print("  💾 Автоматическое управление памятью")
 
 def main():
     """Главная функция"""
@@ -224,6 +238,12 @@ def main():
     print("\n✅ Все файлы созданы")
     print("📋 Следуйте инструкциям выше для настройки")
     print("🚀 После настройки бот будет работать автоматически!")
+    print()
+    print("💡 РЕКОМЕНДАЦИЯ:")
+    print("   Для простой настройки 24/7 запустите:")
+    print("   python pythonanywhere_24_7.py")
+    print()
+    print("   Требуется только токен бота и ваш Telegram ID!")
 
 if __name__ == "__main__":
     main()

@@ -25,10 +25,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Конфигурация для PythonAnywhere
+    # Конфигурация для PythonAnywhere
 class PythonAnywhereConfig:
-    # Рабочие часы (для экономии CPU времени)
-    WORK_START_HOUR = 6
+    # Рабочие часы (24/7 работа)
+    WORK_START_HOUR = 0
     WORK_END_HOUR = 23
     
     # Максимальное время работы за один сеанс (в секундах)
@@ -38,10 +38,10 @@ class PythonAnywhereConfig:
     HEALTH_CHECK_INTERVAL = 300  # 5 минут
     
     # Максимальное использование памяти (в МБ)
-    MAX_MEMORY_MB = 100
+    MAX_MEMORY_MB = 120  # Увеличено для стабильности
     
-    # Новые настройки мониторинга
-    AUTO_RESTART_INTERVAL = 3600  # 1 час
+    # Новые настройки мониторинга (оптимизированы для 24/7)
+    AUTO_RESTART_INTERVAL = 3300  # 55 минут
     HEALTH_REPORT_INTERVAL = 21600  # 6 часов
     ERROR_NOTIFICATION_ENABLED = True
 
@@ -371,14 +371,14 @@ def main():
                 if not wait_for_next_session():
                     continue
             
-            # Проверяем, нужно ли перезапускаться каждый час
+            # Проверяем, нужно ли перезапускаться каждые 55 минут
             current_time = time.time()
             session_duration = current_time - session_start_time
             
             if session_duration >= PythonAnywhereConfig.AUTO_RESTART_INTERVAL:
-                logger.info(f"⏰ Автоматический перезапуск через {session_duration:.0f} сек")
+                logger.info(f"⏰ Автоматический перезапуск каждые 55 минут (сессия {session_duration:.0f} сек)")
                 session_start_time = current_time
-                # Не увеличиваем restart_count для автоматических перезапусков
+                # Не увеличиваем restart_count для плановых перезапусков
             
             # Проверяем системные ресурсы
             if not check_system_resources():
