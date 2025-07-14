@@ -10,15 +10,32 @@ admin_cb = CallbackData("admin", "action", "subaction")
 user_cb = CallbackData("user", "action")
 
 def get_main_keyboard():
-    """Главная клавиатура для обычных пользователей"""
+    """Главная клавиатура для обычных пользователей (устарела, используйте get_soldier_keyboard)"""
+    return get_soldier_keyboard()
+
+def get_soldier_keyboard():
+    """Клавиатура для солдат - 3 кнопки"""
     keyboard = [
         [
-            InlineKeyboardButton("✅ Отметиться", callback_data=user_cb.new("mark_attendance")),
-            InlineKeyboardButton("📍 Указать локацию", callback_data=user_cb.new("set_location"))
+            InlineKeyboardButton("✅ Прибыл", callback_data=user_cb.new("arrived")),
+            InlineKeyboardButton("❌ Убыл", callback_data=user_cb.new("departed"))
+        ],
+        [
+            InlineKeyboardButton("� Мой статус", callback_data=user_cb.new("my_status"))
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_commander_keyboard():
+    """Клавиатура для командиров - 4 кнопки"""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Прибыл", callback_data=user_cb.new("arrived")),
+            InlineKeyboardButton("❌ Убыл", callback_data=user_cb.new("departed"))
         ],
         [
             InlineKeyboardButton("📊 Мой статус", callback_data=user_cb.new("my_status")),
-            InlineKeyboardButton("📖 Помощь", callback_data=user_cb.new("help"))
+            InlineKeyboardButton("⚙️ Админка", callback_data=admin_cb.new("dashboard", ""))
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -166,22 +183,30 @@ def get_export_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_location_keyboard():
-    """Клавиатура выбора локации"""
+    """Клавиатура выбора локации для убытия"""
     keyboard = [
         [
-            InlineKeyboardButton("🏢 Офис", callback_data=user_cb.new("location_office")),
-            InlineKeyboardButton("🏠 Дом", callback_data=user_cb.new("location_home"))
+            InlineKeyboardButton("� Поликлиника", callback_data=user_cb.new("location_polyclinic")),
+            InlineKeyboardButton("⚓ ОБРМП", callback_data=user_cb.new("location_obrmp"))
         ],
         [
-            InlineKeyboardButton("🏥 Больница", callback_data=user_cb.new("location_hospital")),
-            InlineKeyboardButton("� В пути", callback_data=user_cb.new("location_traveling"))
+            InlineKeyboardButton("� Калининград", callback_data=user_cb.new("location_kaliningrad")),
+            InlineKeyboardButton("🛒 Магазин", callback_data=user_cb.new("location_shop"))
         ],
         [
-            InlineKeyboardButton("🏖️ Отпуск", callback_data=user_cb.new("location_vacation")),
-            InlineKeyboardButton("🏥 Больничный", callback_data=user_cb.new("location_sick"))
+            InlineKeyboardButton("🍲 Столовая", callback_data=user_cb.new("location_canteen")),
+            InlineKeyboardButton("🏨 Госпиталь", callback_data=user_cb.new("location_hospital"))
         ],
         [
-            InlineKeyboardButton("✏️ Другое", callback_data=user_cb.new("location_custom")),
+            InlineKeyboardButton("⚙️ Рабочка", callback_data=user_cb.new("location_workshop")),
+            InlineKeyboardButton("🩺 ВВК", callback_data=user_cb.new("location_vvk"))
+        ],
+        [
+            InlineKeyboardButton("�️ МФЦ", callback_data=user_cb.new("location_mfc")),
+            InlineKeyboardButton("🚓 Патруль", callback_data=user_cb.new("location_patrol"))
+        ],
+        [
+            InlineKeyboardButton("📝 Другое", callback_data=user_cb.new("location_custom")),
             InlineKeyboardButton("🔙 Отмена", callback_data=user_cb.new("cancel"))
         ]
     ]
