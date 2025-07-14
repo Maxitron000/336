@@ -32,6 +32,12 @@ class Config:
         # Настройки экспорта
         self.EXPORT_PATH = os.getenv('EXPORT_PATH', 'exports/')
         
+        # Настройки мониторинга
+        self.HEALTH_CHECK_INTERVAL = int(os.getenv('HEALTH_CHECK_INTERVAL', '21600'))  # 6 часов
+        self.AUTO_RESTART_INTERVAL = int(os.getenv('AUTO_RESTART_INTERVAL', '3600'))  # 1 час
+        self.ERROR_NOTIFICATION_ENABLED = os.getenv('ERROR_NOTIFICATION_ENABLED', 'true').lower() == 'true'
+        self.PERFORMANCE_MONITORING = os.getenv('PERFORMANCE_MONITORING', 'true').lower() == 'true'
+        
         # Создаем необходимые директории
         self._create_directories()
     

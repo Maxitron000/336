@@ -85,3 +85,14 @@ pytest_cache/
 # Системные файлы
 .DS_Store
 *.pid
+
+# Специфичные файлы проекта
+start_pa.sh
+cron_alternative.py
+auto_monitor.log
+monitor.log
+
+# Данные пользователей
+data/
+users.json
+attendance.json
