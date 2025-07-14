@@ -15,7 +15,21 @@ logger = logging.getLogger(__name__)
 class Database:
     """Класс для работы с базой данных"""
     
-    def __init__(self, db_path: str = 'data/bot_database.db'):
+    def __init__(self, db_path: str = None):
+        # Если путь не указан, берем из конфигурации
+        if db_path is None:
+            try:
+                from config import Config
+                config = Config()
+                db_path = config.DB_PATH
+            except:
+                # Fallback на стандартный путь
+                db_path = 'data/bot_database.db'
+        
+        # Убеждаемся что используем абсолютный путь
+        if not os.path.isabs(db_path):
+            db_path = os.path.abspath(db_path)
+            
         self.db_path = db_path
         self.connection = None
     
