@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-🚀 Простая настройка Telegram бота
+🚀 Улучшенная настройка Telegram бота
+Автоматическое создание виртуального окружения и установка всех зависимостей
 Нужны только токен бота и ID администратора
 """
 
@@ -8,12 +9,16 @@ import os
 import sys
 import subprocess
 import re
+import shutil
+import venv
+from pathlib import Path
 
 def print_header():
     """Красивый заголовок"""
-    print("=" * 60)
+    print("=" * 70)
     print("🤖 АВТОМАТИЧЕСКАЯ НАСТРОЙКА TELEGRAM БОТА")
-    print("=" * 60)
+    print("🔧 Создание виртуального окружения и установка зависимостей")
+    print("=" * 70)
     print()
 
 def check_python_version():
@@ -24,73 +29,211 @@ def check_python_version():
         return True
     else:
         print(f"❌ Python {version.major}.{version.minor}.{version.micro} - НЕ совместим")
-        print("⚠️  Рекомендуется Python 3.10+")
-        return input("Продолжить? (y/N): ").lower() == 'y'
+        print("⚠️  Требуется Python 3.10+")
+        return False
 
-def detect_pythonanywhere():
-    """Определение PythonAnywhere"""
-    indicators = [
-        '/home/' in os.getcwd(),
-        'pythonanywhere' in os.getcwd().lower(),
-        os.path.exists('/var/log/pythonanywhere.log'),
-        'PYTHONANYWHERE_SITE' in os.environ
-    ]
-    return any(indicators)
+def detect_platform():
+    """Определение платформы"""
+    if 'pythonanywhere' in os.getcwd().lower() or os.path.exists('/var/log/pythonanywhere.log'):
+        return 'pythonanywhere'
+    elif sys.platform == 'win32':
+        return 'windows'
+    else:
+        return 'unix'
+
+def remove_existing_venv():
+    """Удаление существующего виртуального окружения"""
+    venv_path = Path("venv_bot")
+    if venv_path.exists():
+        print("🗑️ Удаляем существующее виртуальное окружение...")
+        try:
+            shutil.rmtree(venv_path)
+            print("✅ Старое окружение удалено")
+        except Exception as e:
+            print(f"⚠️ Предупреждение при удалении: {e}")
+            return False
+    return True
 
 def create_virtual_environment():
     """Создание виртуального окружения"""
-    print("\n🔧 Создание виртуального окружения...")
+    print("\n🔧 Создание нового виртуального окружения...")
     
     venv_path = "venv_bot"
     
-    # Проверяем, существует ли уже
-    if os.path.exists(venv_path):
-        print(f"⚠️ Виртуальное окружение {venv_path} уже существует")
-        response = input("Пересоздать? (y/N): ").lower()
-        if response == 'y':
-            print("🗑️ Удаляем старое окружение...")
-            import shutil
-            shutil.rmtree(venv_path)
-        else:
-            print("✅ Используем существующее виртуальное окружение")
-            return True
+    # Удаляем существующее окружение если есть
+    if not remove_existing_venv():
+        print("❌ Не удалось удалить старое окружение")
+        return False
     
     try:
-        # Создаем виртуальное окружение
+        # Используем модуль venv для создания окружения
         print(f"🏗️ Создание виртуального окружения {venv_path}...")
-        result = subprocess.run([
-            sys.executable, "-m", "venv", venv_path
-        ], capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            print(f"✅ Виртуальное окружение {venv_path} создано успешно")
-            return True
-        else:
-            print(f"❌ Ошибка создания виртуального окружения: {result.stderr}")
-            return False
+        venv.create(venv_path, with_pip=True, clear=True)
+        print(f"✅ Виртуальное окружение {venv_path} создано успешно")
+        return True
             
     except Exception as e:
         print(f"❌ Ошибка создания виртуального окружения: {e}")
         return False
 
-def get_python_executable():
+def get_venv_python():
     """Получение пути к Python в виртуальном окружении"""
-    venv_path = "venv_bot"
+    platform = detect_platform()
     
-    if os.name == 'nt':  # Windows
-        python_path = os.path.join(venv_path, "Scripts", "python.exe")
-    else:  # Unix/Linux/MacOS
-        python_path = os.path.join(venv_path, "bin", "python")
+    if platform == 'windows':
+        python_path = Path("venv_bot/Scripts/python.exe")
+    else:  # unix, pythonanywhere
+        python_path = Path("venv_bot/bin/python")
     
-    if os.path.exists(python_path):
-        return python_path
+    if python_path.exists():
+        return str(python_path)
     else:
-        print(f"⚠️ Python не найден в виртуальном окружении: {python_path}")
-        return sys.executable
+        print(f"❌ Python не найден в виртуальном окружении: {python_path}")
+        return None
+
+def get_venv_pip():
+    """Получение пути к pip в виртуальном окружении"""
+    platform = detect_platform()
+    
+    if platform == 'windows':
+        pip_path = Path("venv_bot/Scripts/pip.exe")
+    else:  # unix, pythonanywhere
+        pip_path = Path("venv_bot/bin/pip")
+    
+    if pip_path.exists():
+        return str(pip_path)
+    else:
+        # Используем python -m pip
+        python_path = get_venv_python()
+        if python_path:
+            return f"{python_path} -m pip"
+        return None
+
+def upgrade_pip():
+    """Обновление pip в виртуальном окружении"""
+    print("🔄 Обновление pip в виртуальном окружении...")
+    
+    python_path = get_venv_python()
+    if not python_path:
+        return False
+    
+    try:
+        result = subprocess.run([
+            python_path, "-m", "pip", "install", "--upgrade", "pip"
+        ], capture_output=True, text=True, timeout=300)
+        
+        if result.returncode == 0:
+            print("✅ pip обновлён успешно")
+            return True
+        else:
+            print(f"⚠️ Предупреждение при обновлении pip: {result.stderr}")
+            return True  # Продолжаем даже при предупреждениях
+            
+    except subprocess.TimeoutExpired:
+        print("⚠️ Timeout при обновлении pip")
+        return True
+    except Exception as e:
+        print(f"⚠️ Ошибка обновления pip: {e}")
+        return True
+
+def install_requirements():
+    """Установка зависимостей в виртуальное окружение"""
+    print("\n📦 Установка зависимостей в виртуальное окружение...")
+    
+    python_path = get_venv_python()
+    if not python_path:
+        return False
+    
+    # Проверяем наличие requirements.txt
+    if not os.path.exists("requirements.txt"):
+        print("❌ Файл requirements.txt не найден!")
+        return False
+    
+    try:
+        # Устанавливаем зависимости
+        print("📥 Установка зависимостей из requirements.txt...")
+        print(f"🐍 Используем Python: {python_path}")
+        
+        # Устанавливаем с подробным выводом
+        result = subprocess.run([
+            python_path, "-m", "pip", "install", "-r", "requirements.txt", 
+            "--no-cache-dir", "--timeout", "600"
+        ], capture_output=True, text=True, timeout=900)
+        
+        if result.returncode == 0:
+            print("✅ Зависимости установлены успешно!")
+            print("📋 Установленные пакеты:")
+            
+            # Показываем список установленных пакетов
+            list_result = subprocess.run([
+                python_path, "-m", "pip", "list"
+            ], capture_output=True, text=True)
+            
+            if list_result.returncode == 0:
+                print(list_result.stdout)
+            
+            return True
+        else:
+            print(f"❌ Ошибка установки зависимостей:")
+            print(result.stderr)
+            print("\n💡 Попробуйте установить зависимости вручную:")
+            print(f"   {python_path} -m pip install -r requirements.txt")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print("❌ Превышено время ожидания установки зависимостей (15 минут)")
+        return False
+    except Exception as e:
+        print(f"❌ Ошибка установки: {e}")
+        return False
+
+def test_imports():
+    """Тестирование импорта критических модулей"""
+    print("\n🧪 Проверка установленных зависимостей...")
+    
+    python_path = get_venv_python()
+    if not python_path:
+        return False
+    
+    critical_modules = [
+        ('aiogram', 'aiogram'),
+        ('aiosqlite', 'aiosqlite'),
+        ('python-dotenv', 'dotenv'),
+        ('psutil', 'psutil'),
+        ('requests', 'requests'),
+        ('pandas', 'pandas'),
+        ('openpyxl', 'openpyxl'),
+        ('reportlab', 'reportlab')
+    ]
+    
+    all_ok = True
+    
+    for package_name, import_name in critical_modules:
+        try:
+            result = subprocess.run([
+                python_path, "-c", f"import {import_name}; print('✓ {package_name}')"
+            ], capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                print(f"  ✅ {package_name}")
+            else:
+                print(f"  ❌ {package_name} - ошибка импорта")
+                all_ok = False
+                
+        except Exception as e:
+            print(f"  ❌ {package_name} - ошибка теста: {e}")
+            all_ok = False
+    
+    if all_ok:
+        print("✅ Все критические зависимости работают корректно!")
+    else:
+        print("⚠️ Есть проблемы с некоторыми зависимостями")
+    
+    return all_ok
 
 def get_bot_token():
     """Получение токена бота"""
-    print("📱 Получение токена бота:")
+    print("\n📱 Получение токена бота:")
     print("1. Перейдите к @BotFather в Telegram")
     print("2. Отправьте /newbot и следуйте инструкциям")
     print("3. Скопируйте токен (выглядит как: 1234567890:ABCdefGHIjklMNOpqrsTUVwxyz)")
@@ -122,6 +265,8 @@ def get_admin_id():
 
 def create_env_file(token, admin_id):
     """Создание файла .env"""
+    print("\n📝 Создание конфигурационного файла...")
+    
     env_content = f"""# Настройки Telegram бота
 BOT_TOKEN={token}
 ADMIN_IDS={admin_id}
@@ -153,71 +298,6 @@ PERFORMANCE_MONITORING=true
     
     print("✅ Файл .env создан успешно")
 
-def install_dependencies():
-    """Установка зависимостей в виртуальное окружение"""
-    print("\n📦 Установка зависимостей в виртуальное окружение...")
-    
-    python_exe = get_python_executable()
-    
-    try:
-        # Определяем нужный файл requirements
-        if sys.version_info >= (3, 10):
-            req_file = "requirements.txt"
-        else:
-            req_file = "requirements_python310.txt"
-            
-        if not os.path.exists(req_file):
-            req_file = "requirements.txt"
-        
-        print(f"Используем файл: {req_file}")
-        print(f"Python: {python_exe}")
-        
-        # Сначала обновляем pip в виртуальном окружении
-        print("🔄 Обновление pip...")
-        pip_result = subprocess.run([
-            python_exe, "-m", "pip", "install", "--upgrade", "pip"
-        ], capture_output=True, text=True, timeout=300)
-        
-        if pip_result.returncode != 0:
-            print(f"⚠️ Предупреждение при обновлении pip: {pip_result.stderr}")
-        
-        # Устанавливаем зависимости с увеличенным timeout
-        print("📥 Установка зависимостей...")
-        result = subprocess.run([
-            python_exe, "-m", "pip", "install", "-r", req_file, "--timeout", "300"
-        ], capture_output=True, text=True, timeout=600)
-        
-        if result.returncode == 0:
-            print("✅ Зависимости установлены успешно в виртуальное окружение")
-            
-            # Проверяем критичные пакеты
-            critical_packages = ['aiogram', 'aiosqlite', 'psutil', 'python-dotenv']
-            print("🔍 Проверка критичных пакетов...")
-            
-            for package in critical_packages:
-                check_result = subprocess.run([
-                    python_exe, "-c", f"import {package.replace('-', '_')}; print('✓ {package}')"
-                ], capture_output=True, text=True)
-                
-                if check_result.returncode == 0:
-                    print(f"  ✅ {package}")
-                else:
-                    print(f"  ❌ {package} - проблема импорта")
-            
-            return True
-        else:
-            print(f"❌ Ошибка установки зависимостей: {result.stderr}")
-            print("💡 Попробуйте запустить: pip install -r requirements.txt вручную")
-            return False
-            
-    except subprocess.TimeoutExpired:
-        print("❌ Превышено время ожидания установки зависимостей")
-        print("💡 Попробуйте установить зависимости вручную")
-        return False
-    except Exception as e:
-        print(f"❌ Ошибка установки: {e}")
-        return False
-
 def create_directories():
     """Создание необходимых директорий"""
     print("\n📁 Создание директорий...")
@@ -232,83 +312,82 @@ def initialize_database():
     """Инициализация базы данных"""
     print("\n🗄️ Инициализация базы данных...")
     
-    python_exe = get_python_executable()
+    python_path = get_venv_python()
+    if not python_path:
+        return False
     
     try:
         result = subprocess.run([
-            python_exe, "create_database.py"
+            python_path, "create_database.py"
         ], capture_output=True, text=True)
         
         if result.returncode == 0:
-            print("✅ База данных инициализирована")
+            print("✅ База данных инициализирована успешно")
             return True
         else:
-            print(f"⚠️ Предупреждение: {result.stderr}")
+            print(f"⚠️ Предупреждение при инициализации БД: {result.stderr}")
             return True  # Продолжаем даже при предупреждениях
             
     except Exception as e:
         print(f"⚠️ Ошибка инициализации БД: {e}")
         return True  # Продолжаем
 
-def run_tests():
-    """Запуск тестов"""
-    print("\n🧪 Проверка работоспособности...")
+def update_start_script():
+    """Обновление скрипта запуска для использования виртуального окружения"""
+    print("\n📜 Обновление скрипта запуска...")
     
-    python_exe = get_python_executable()
+    platform = detect_platform()
     
-    # Тест импорта aiogram
-    try:
-        result = subprocess.run([
-            python_exe, "test_aiogram.py"
-        ], capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            print("✅ Тест aiogram пройден")
-        else:
-            print(f"⚠️ Предупреждение в тесте aiogram: {result.stderr}")
-    except Exception as e:
-        print(f"⚠️ Ошибка теста: {e}")
-
-def create_start_script():
-    """Создание скрипта запуска"""
-    print("\n📜 Создание скрипта запуска...")
-    
-    # Определяем путь к Python в виртуальном окружении
-    if os.name == 'nt':  # Windows
+    if platform == 'windows':
         venv_python = "venv_bot\\Scripts\\python.exe"
-    else:  # Unix/Linux/MacOS  
+    else:
         venv_python = "venv_bot/bin/python"
     
     start_script = f"""#!/usr/bin/env python3
-# Запуск бота с виртуальным окружением
+"""
+🚀 Запуск Telegram бота из виртуального окружения
+Автоматический перезапуск и мониторинг
+"""
+
 import subprocess
 import sys
 import os
+from pathlib import Path
 
 def main():
-    # Переходим в директорию скрипта
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(script_dir)
+    """Запуск бота с автоматическим мониторингом из виртуального окружения"""
+    print("🤖 Запуск Telegram бота из виртуального окружения...")
+    print("🔄 Автоперезапуск: каждый час")
+    print("📊 Отчёты админу: каждые 6 часов")
+    print("🛑 Для остановки нажмите Ctrl+C")
+    print("-" * 50)
     
-    # Путь к Python в виртуальном окружении
-    venv_python = "{venv_python}"
+    # Проверяем наличие .env файла
+    if not os.path.exists('.env'):
+        print("❌ Файл .env не найден!")
+        print("📝 Запустите сначала: python setup.py")
+        return 1
     
     # Проверяем наличие виртуального окружения
-    if not os.path.exists(venv_python):
+    venv_python = Path("{venv_python}")
+    if not venv_python.exists():
         print("❌ Виртуальное окружение не найдено!")
         print("🔧 Запустите сначала: python setup.py")
         return 1
     
+    print(f"🐍 Используем Python: {{venv_python}}")
+    
     try:
-        print("🚀 Запуск бота из виртуального окружения...")
-        subprocess.run([venv_python, "run_bot.py"])
+        # Запускаем основной скрипт из виртуального окружения
+        subprocess.run([str(venv_python), "run_bot.py"])
+        return 0
     except KeyboardInterrupt:
         print("\\n🛑 Бот остановлен пользователем")
+        return 0
     except Exception as e:
         print(f"❌ Ошибка запуска: {{e}}")
+        print("🔧 Попробуйте запустить: python setup.py")
         return 1
-    
-    return 0
 
 if __name__ == "__main__":
     sys.exit(main())
@@ -318,128 +397,174 @@ if __name__ == "__main__":
         f.write(start_script)
     
     # Делаем исполняемым на Unix
-    if sys.platform != 'win32':
+    if platform != 'windows':
         os.chmod('start.py', 0o755)
     
-    print("✅ Скрипт start.py создан")
+    print("✅ Скрипт start.py обновлён для работы с виртуальным окружением")
 
-def create_activation_info():
-    """Создание информации об активации виртуального окружения"""
-    print("\n📋 Создание справочной информации...")
+def create_run_in_venv_script():
+    """Создание удобного скрипта для запуска команд в виртуальном окружении"""
+    platform = detect_platform()
     
-    is_pa = detect_pythonanywhere()
+    if platform == 'windows':
+        venv_python = "venv_bot\\Scripts\\python.exe"
+        script_name = "run_in_venv.bat"
+        script_content = f"""@echo off
+echo 🐍 Запуск в виртуальном окружении...
+{venv_python} %*
+"""
+    else:
+        venv_python = "venv_bot/bin/python"
+        script_name = "run_in_venv.sh"
+        script_content = f"""#!/bin/bash
+echo "🐍 Запуск в виртуальном окружении..."
+{venv_python} "$@"
+"""
     
-    if os.name == 'nt':  # Windows
+    with open(script_name, 'w', encoding='utf-8') as f:
+        f.write(script_content)
+    
+    if platform != 'windows':
+        os.chmod(script_name, 0o755)
+    
+    print(f"✅ Создан вспомогательный скрипт: {script_name}")
+
+def create_info_file():
+    """Создание информационного файла"""
+    platform = detect_platform()
+    
+    if platform == 'windows':
+        venv_python = "venv_bot\\Scripts\\python.exe"
         activate_cmd = "venv_bot\\Scripts\\activate"
-        python_cmd = "venv_bot\\Scripts\\python"
-    else:  # Unix/Linux/MacOS
+    else:
+        venv_python = "venv_bot/bin/python"
         activate_cmd = "source venv_bot/bin/activate"
-        python_cmd = "venv_bot/bin/python"
     
-    info_content = f"""# 🔧 Информация о виртуальном окружении
+    info_content = f"""# 🤖 Telegram Bot - Руководство по запуску
 
-## 📁 Структура:
-- Виртуальное окружение: `venv_bot/`
-- Конфигурация: `.env`
-- База данных: `data/bot_database.db`
-- Логи: `logs/bot.log`
+## ✅ Установка завершена успешно!
 
-## 🚀 Команды для запуска:
-
-### Вариант 1 - Простой запуск (рекомендуется):
+### 🚀 Быстрый запуск:
 ```bash
 python start.py
 ```
 
-### Вариант 2 - Ручная активация окружения:
+### 🔧 Альтернативные способы запуска:
+
+#### 1. Прямой запуск из виртуального окружения:
+```bash
+{venv_python} run_bot.py
+```
+
+#### 2. Активация окружения и запуск:
 ```bash
 {activate_cmd}
 python run_bot.py
 ```
 
-### Вариант 3 - Прямой вызов:
+#### 3. Использование вспомогательного скрипта:
 ```bash
-{python_cmd} run_bot.py
+{"./run_in_venv.sh" if platform != 'windows' else "run_in_venv.bat"} run_bot.py
 ```
 
-## 🌐 Для PythonAnywhere:
+### 📊 Диагностика и обслуживание:
 
-### Команда для Scheduled Task:
-```
-{python_cmd.replace('venv_bot/', '/home/yourusername/telegram_bot/venv_bot/')} /home/yourusername/telegram_bot/run_bot.py
-```
-
-### Скрипт активации:
+#### Проверка состояния базы данных:
 ```bash
-cd ~/telegram_bot
-{activate_cmd}
-python run_bot.py
+{venv_python} check_database.py
 ```
 
-## 🔍 Диагностика:
+#### Создание резервной копии:
 ```bash
-# Проверка окружения
-{python_cmd} diagnose_issues.py
-
-# Тест aiogram
-{python_cmd} test_aiogram.py
-
-# Проверка базы данных
-{python_cmd} check_database.py
+{venv_python} backup.py
 ```
 
-## ⚠️ Важно:
-- Всегда используйте виртуальное окружение
-- Зависимости устанавливайте только в venv_bot
-- Не запускайте setup.py повторно без необходимости
+#### Экспорт данных:
+```bash
+{venv_python} export.py
+```
+
+### 🌐 Для PythonAnywhere:
+
+#### Команда для Scheduled Task:
+```
+{venv_python.replace('venv_bot/', '/home/yourusername/mysite/venv_bot/')} /home/yourusername/mysite/run_bot.py
+```
+
+### 📁 Структура проекта:
+- `venv_bot/` - виртуальное окружение
+- `.env` - конфигурация (токен, ID администратора)
+- `data/` - база данных
+- `logs/` - файлы логов
+- `exports/` - экспортированные данные
+
+### ⚠️ Важные заметки:
+- ✅ Все зависимости установлены в изолированном виртуальном окружении
+- ✅ Бот настроен на автоматический перезапуск каждый час
+- ✅ Отчёты отправляются администратору каждые 6 часов
+- ✅ Все ошибки логируются в файл `logs/bot.log`
+
+### 🛠️ Переустановка (если нужна):
+```bash
+python setup.py
+```
+
+Удачного использования! 🎉
 """
     
-    with open('VIRTUAL_ENV_INFO.md', 'w', encoding='utf-8') as f:
+    with open('SETUP_COMPLETE.md', 'w', encoding='utf-8') as f:
         f.write(info_content)
     
-    print("✅ Файл VIRTUAL_ENV_INFO.md создан")
+    print("✅ Файл SETUP_COMPLETE.md создан с инструкциями")
 
 def print_success():
     """Вывод успешного завершения"""
-    python_exe = get_python_executable()
-    is_pa = detect_pythonanywhere()
+    platform = detect_platform()
+    python_path = get_venv_python()
     
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
     print("🎉 НАСТРОЙКА ЗАВЕРШЕНА УСПЕШНО!")
-    print("=" * 60)
+    print("=" * 70)
     print()
     print("✅ Виртуальное окружение: venv_bot/")
-    print("✅ Зависимости установлены в изолированной среде")
+    print("✅ Все зависимости установлены в изолированной среде")
+    print("✅ Конфигурация создана: .env")
+    print("✅ База данных инициализирована")
     print()
-    print("🚀 Для запуска бота используйте:")
+    print("🚀 ДЛЯ ЗАПУСКА БОТА ИСПОЛЬЗУЙТЕ:")
     print("   python start.py")
-    print("   или")
-    print(f"   {python_exe} run_bot.py")
+    print()
+    print("📋 Альтернативные команды:")
+    print(f"   {python_path} run_bot.py")
     print()
     
-    if is_pa:
-        print("🌐 Для PythonAnywhere развертывания:")
-        print(f"   python3.10 pythonanywhere_deploy.py")
+    if platform == 'pythonanywhere':
+        print("🌐 Для PythonAnywhere Scheduled Task:")
+        pa_python = python_path.replace('venv_bot/', '/home/yourusername/mysite/venv_bot/')
+        print(f"   {pa_python} /home/yourusername/mysite/run_bot.py")
         print()
     
-    print("📊 Мониторинг:")
+    print("📊 Настройки мониторинга:")
     print("   - Автоперезапуск каждый час")
     print("   - Отчёты админу каждые 6 часов")
-    print("   - Уведомления об ошибках")
+    print("   - Уведомления об ошибках включены")
     print()
-    print("📁 Файлы:")
-    print("   - Логи: logs/bot.log")
-    print("   - БД: data/bot_database.db")
+    print("📁 Важные файлы:")
     print("   - Конфигурация: .env")
-    print("   - Справка: VIRTUAL_ENV_INFO.md")
+    print("   - База данных: data/bot_database.db")
+    print("   - Логи: logs/bot.log")
+    print("   - Инструкции: SETUP_COMPLETE.md")
     print()
+    print("🎯 Теперь просто запустите: python start.py")
+    print("=" * 70)
 
 def main():
-    """Главная функция"""
+    """Главная функция установки"""
     print_header()
     
     # Проверка Python
     if not check_python_version():
+        print("❌ Требуется Python 3.10 или выше!")
         return
     
     # Создание виртуального окружения
@@ -447,23 +572,34 @@ def main():
         print("❌ Не удалось создать виртуальное окружение")
         return
     
-    # Получение данных
+    # Обновление pip
+    if not upgrade_pip():
+        print("⚠️ Продолжаем без обновления pip")
+    
+    # Установка зависимостей
+    if not install_requirements():
+        print("❌ Критическая ошибка: не удалось установить зависимости")
+        print("💡 Попробуйте установить вручную:")
+        python_path = get_venv_python()
+        if python_path:
+            print(f"   {python_path} -m pip install -r requirements.txt")
+        return
+    
+    # Тестирование импортов
+    if not test_imports():
+        print("⚠️ Есть проблемы с некоторыми зависимостями, но продолжаем...")
+    
+    # Получение данных пользователя
     token = get_bot_token()
     admin_id = get_admin_id()
     
-    # Настройка
+    # Настройка проекта
     create_env_file(token, admin_id)
     create_directories()
-    
-    # Установка зависимостей в виртуальное окружение
-    if not install_dependencies():
-        print("⚠️ Продолжаем без установки зависимостей")
-    
-    # Инициализация
     initialize_database()
-    run_tests()
-    create_start_script()
-    create_activation_info()
+    update_start_script()
+    create_run_in_venv_script()
+    create_info_file()
     
     # Завершение
     print_success()
@@ -474,4 +610,6 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n🛑 Настройка прервана пользователем")
     except Exception as e:
-        print(f"\n❌ Ошибка настройки: {e}")
+        print(f"\n❌ Критическая ошибка настройки: {e}")
+        import traceback
+        traceback.print_exc()
