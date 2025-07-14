@@ -180,6 +180,11 @@ class AdminPanel:
                 location_text = "неизвестно"
             
             message += f"{status_emoji} *{user['name']}*\n"
+            
+            # Добавляем ТГ ссылку если есть username
+            if user.get('username'):
+                message += f"   └ 🔗 @{user['username']}\n"
+            
             message += f"   └ 📱 ID: {user['telegram_id']}\n"
             message += f"   └ 📍 {location_text}\n\n"
         

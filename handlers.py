@@ -35,6 +35,8 @@ class UserStates(StatesGroup):
     waiting_for_personnel_action = State()
     waiting_for_settings_action = State()
     waiting_for_confirmation = State()
+    waiting_for_danger_confirmation = State()
+    waiting_for_filter_input = State()
 
 def register_handlers(dp: Dispatcher, admin_panel: AdminPanel, notification_system: NotificationSystem):
     """Регистрация всех обработчиков"""
@@ -162,6 +164,10 @@ async def handle_text_message(message: types.Message, state: FSMContext):
         await handle_name_input(message, state, text)
     elif current_state == UserStates.waiting_for_custom_location.state:
         await handle_custom_location_input(message, state, text)
+    elif current_state == UserStates.waiting_for_danger_confirmation.state:
+        await handle_danger_confirmation_input(message, state, text)
+    elif current_state == UserStates.waiting_for_filter_input.state:
+        await handle_filter_input(message, state, text)
     else:
         # Если не в состоянии ожидания ввода, игнорируем текстовые сообщения
         # Все действия теперь выполняются через инлайн-кнопки
@@ -172,8 +178,11 @@ async def handle_name_input(message: types.Message, state: FSMContext, name: str
     user_id = message.from_user.id
     
     try:
+        # Получаем username пользователя если есть
+        username = message.from_user.username
+        
         # Добавляем пользователя (пока без статуса)
-        success = await admin_panel.db.add_user(user_id, name)
+        success = await admin_panel.db.add_user(user_id, name, username=username)
         
         if success:
             # Сохраняем имя в состояние для дальнейшего использования
@@ -860,7 +869,120 @@ async def handle_initial_location_callback(callback_query: types.CallbackQuery, 
             await state.finish()
         else:
             await callback_query.answer("❌ Ошибка установки статуса")
+
+async def handle_danger_confirmation_input(message: types.Message, state: FSMContext, text: str):
+    """Обработка ввода подтверждения для опасных операций"""
+    user_id = message.from_user.id
+    
+    try:
+        # Удаляем сообщение пользователя для чистоты чата
+        await message.delete()
+    except:
+        pass
+    
+    # Получаем данные о подтверждаемом действии
+    state_data = await state.get_data()
+    action = state_data.get('danger_action')
+    
+    if text.strip().lower() == 'да':
+        from keyboards import get_text_confirmation_keyboard
+        
+        await message.answer(
+            f"⚠️ **ВНИМАНИЕ!**\n\n"
+            f"Вы уверены, что хотите выполнить операцию:\n"
+            f"**{action}**\n\n"
+            f"Это действие нельзя отменить!",
+            reply_markup=get_text_confirmation_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        # Сохраняем подтверждение в состояние
+        await state.update_data(text_confirmed=True)
+    else:
+        await message.answer(
+            f"❌ **Операция отменена**\n\n"
+            f"Для подтверждения опасной операции необходимо ввести текст: **Да**\n"
+            f"Вы ввели: `{text}`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        await state.finish()
+
+async def handle_filter_input(message: types.Message, state: FSMContext, text: str):
+    """Обработка ввода фильтра для журнала"""
+    user_id = message.from_user.id
+    
+    try:
+        # Удаляем сообщение пользователя для чистоты чата
+        await message.delete()
+    except:
+        pass
+    
+    # Получаем данные о фильтре
+    state_data = await state.get_data()
+    filter_type = state_data.get('filter_type')
+    
+    if filter_type == 'by_name':
+        # Фильтр по ФИО
+        filters = {'user_name': text}
+        events = await admin_panel.db.get_events(limit=50, filters=filters)
+        
+        if events:
+            message_text = f"📋 **Журнал событий (фильтр по ФИО: {text})**\n\n"
+            for event in events[:20]:  # Показываем только первые 20
+                timestamp = event['timestamp']
+                user_name = event['user_name']
+                action = event['action']
+                details = event.get('details', '')
+                
+                message_text += f"🕐 {timestamp}\n"
+                message_text += f"👤 {user_name}\n"
+                message_text += f"📝 {action}"
+                if details:
+                    message_text += f" - {details}"
+                message_text += "\n\n"
             
-    except Exception as e:
-        logger.error(f"Ошибка выбора локации при регистрации: {e}")
-        await callback_query.answer("❌ Произошла ошибка")
+            if len(events) > 20:
+                message_text += f"... и еще {len(events) - 20} записей"
+        else:
+            message_text = f"📋 Записей по фильтру ФИО `{text}` не найдено"
+        
+        from keyboards import get_journal_filters_keyboard
+        await message.answer(
+            message_text,
+            reply_markup=get_journal_filters_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+    elif filter_type == 'by_action':
+        # Фильтр по действию
+        filters = {'action': text}
+        events = await admin_panel.db.get_events(limit=50, filters=filters)
+        
+        if events:
+            message_text = f"📋 **Журнал событий (фильтр по действию: {text})**\n\n"
+            for event in events[:20]:  # Показываем только первые 20
+                timestamp = event['timestamp']
+                user_name = event['user_name']
+                action = event['action']
+                details = event.get('details', '')
+                
+                message_text += f"🕐 {timestamp}\n"
+                message_text += f"👤 {user_name}\n"
+                message_text += f"📝 {action}"
+                if details:
+                    message_text += f" - {details}"
+                message_text += "\n\n"
+            
+            if len(events) > 20:
+                message_text += f"... и еще {len(events) - 20} записей"
+        else:
+            message_text = f"📋 Записей по фильтру действие `{text}` не найдено"
+        
+        from keyboards import get_journal_filters_keyboard
+        await message.answer(
+            message_text,
+            reply_markup=get_journal_filters_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    
+        await state.finish()
