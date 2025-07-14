@@ -138,26 +138,82 @@ class AdminPanel:
             logger.error(f"Ошибка удаления пользователя: {e}")
             return False
     
-    async def get_users_list(self) -> List[Dict]:
-        """Получение списка всех бойцов"""
+    async def get_users_list(self, page: int = 1, per_page: int = 8) -> tuple[List[Dict], int, int]:
+        """Получение списка всех бойцов с пагинацией"""
         try:
-            return await self.db.get_all_users()
+            all_users = await self.db.get_all_users()
+            
+            # Исключаем командиров из списка, показываем только солдат
+            soldiers = [user for user in all_users if not user.get('is_admin', False)]
+            
+            total_users = len(soldiers)
+            total_pages = (total_users + per_page - 1) // per_page if total_users > 0 else 1
+            
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            users_on_page = soldiers[start_idx:end_idx]
+            
+            return users_on_page, page, total_pages
         except Exception as e:
             logger.error(f"Ошибка получения списка пользователей: {e}")
-            return []
+            return [], 1, 1
     
-    async def format_users_list(self, users: List[Dict]) -> str:
-        """Форматирование списка пользователей"""
+    async def format_users_list(self, users: List[Dict], page: int, total_pages: int) -> str:
+        """Форматирование списка пользователей с пагинацией"""
         if not users:
-            return "📋 Список пуст"
+            return "📋 *Список солдат пуст*"
         
-        message = "📋 *Список всех бойцов:*\n\n"
+        message = f"📋 *Список солдат* (стр. {page}/{total_pages})\n\n"
+        
         for i, user in enumerate(users, 1):
-            status = "✅" if await self.db.get_attendance_today() else "❌"
-            location = user.get('location', 'не указано')
-            message += f"{i}. {status} {user['name']} ({location})\n"
+            # Получаем актуальный статус солдата
+            try:
+                status_info = await self.db.get_soldier_status(user['telegram_id'])
+                if status_info:
+                    status_emoji = "🏠" if status_info.get('status') == 'в_части' else "🚪"
+                    location_text = status_info.get('location', 'в части') if status_info.get('status') == 'вне_части' else 'в части'
+                else:
+                    status_emoji = "❓"
+                    location_text = "неизвестно"
+            except:
+                status_emoji = "❓"
+                location_text = "неизвестно"
+            
+            message += f"{status_emoji} *{user['name']}*\n"
+            message += f"   └ 📱 ID: {user['telegram_id']}\n"
+            message += f"   └ 📍 {location_text}\n\n"
         
         return message
+    
+    def get_users_pagination_keyboard(self, page: int, total_pages: int):
+        """Клавиатура для пагинации списка пользователей"""
+        from keyboards import admin_cb, InlineKeyboardMarkup, InlineKeyboardButton
+        
+        keyboard = []
+        
+        # Кнопки навигации
+        nav_row = []
+        if page > 1:
+            nav_row.append(InlineKeyboardButton("⬅️ Назад", callback_data=admin_cb.new("personnel", f"list_users_{page-1}")))
+        
+        nav_row.append(InlineKeyboardButton(f"📄 {page}/{total_pages}", callback_data=admin_cb.new("personnel", "list_users_info")))
+        
+        if page < total_pages:
+            nav_row.append(InlineKeyboardButton("➡️ Вперед", callback_data=admin_cb.new("personnel", f"list_users_{page+1}")))
+        
+        if nav_row:
+            keyboard.append(nav_row)
+        
+        # Кнопки действий
+        keyboard.append([
+            InlineKeyboardButton("➕ Добавить", callback_data=admin_cb.new("personnel", "add_user")),
+            InlineKeyboardButton("❌ Удалить", callback_data=admin_cb.new("personnel", "delete_user"))
+        ])
+        
+        # Кнопка назад
+        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("personnel", ""))])
+        
+        return InlineKeyboardMarkup(keyboard)
     
     # Методы журнала событий (Уровень 2)
     async def get_events_list(self, limit: int = 50) -> List[Dict]:
@@ -393,8 +449,24 @@ class AdminPanel:
                 
             elif action == "personnel":
                 if subaction == "list_users":
-                    users = await self.get_users_list()
-                    message = await self.format_users_list(users)
+                    users, page, total_pages = await self.get_users_list(1)
+                    message = await self.format_users_list(users, page, total_pages)
+                    keyboard = self.get_users_pagination_keyboard(page, total_pages)
+                    return message, keyboard
+                elif subaction.startswith("list_users_"):
+                    # Обработка пагинации
+                    try:
+                        page_num = int(subaction.split("_")[-1])
+                        users, page, total_pages = await self.get_users_list(page_num)
+                        message = await self.format_users_list(users, page, total_pages)
+                        keyboard = self.get_users_pagination_keyboard(page, total_pages)
+                        return message, keyboard
+                    except:
+                        # Если не удалось распарсить номер страницы, показываем первую
+                        users, page, total_pages = await self.get_users_list(1)
+                        message = await self.format_users_list(users, page, total_pages)
+                        keyboard = self.get_users_pagination_keyboard(page, total_pages)
+                        return message, keyboard
                 else:
                     message = "👥 *Управление личным составом*\n\nВыберите действие:"
                 keyboard = await self.get_keyboard_for_action("personnel")

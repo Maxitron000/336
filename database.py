@@ -47,11 +47,24 @@ class Database:
                     telegram_id INTEGER UNIQUE NOT NULL,
                     name TEXT NOT NULL,
                     location TEXT,
+                    status TEXT DEFAULT 'в_части',
+                    last_status_change TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     is_admin BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            
+            # Добавляем новые колонки если они не существуют
+            try:
+                await cursor.execute('ALTER TABLE users ADD COLUMN status TEXT DEFAULT "в_части"')
+            except:
+                pass
+            
+            try:
+                await cursor.execute('ALTER TABLE users ADD COLUMN last_status_change TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+            except:
+                pass
             
             # Таблица отметок
             await cursor.execute('''
@@ -448,3 +461,126 @@ class Database:
         except Exception as e:
             logger.error(f"Ошибка обновления настроек уведомлений: {e}")
             return False
+    
+    # Новые методы для работы со статусами солдат
+    async def set_soldier_status(self, telegram_id: int, status: str, location: str = None) -> bool:
+        """Установка статуса солдата"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return False
+            
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    UPDATE users 
+                    SET status = ?, location = ?, last_status_change = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                    WHERE telegram_id = ?
+                ''', (status, location, telegram_id))
+                
+                await self.connection.commit()
+                
+                # Логируем событие
+                await self.log_event(user['id'], status, f"Локация: {location}" if location else None)
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Ошибка установки статуса: {e}")
+            return False
+    
+    async def get_soldier_status(self, telegram_id: int) -> Optional[Dict]:
+        """Получение статуса солдата"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return None
+            
+            return {
+                'name': user['name'],
+                'status': user.get('status', 'в_части'),
+                'location': user.get('location'),
+                'last_status_change': user.get('last_status_change'),
+                'telegram_id': user['telegram_id']
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения статуса: {e}")
+            return None
+    
+    async def get_soldiers_by_status(self, status: str) -> List[Dict]:
+        """Получение списка солдат по статусу"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT telegram_id, name, location, last_status_change, status
+                    FROM users 
+                    WHERE status = ? AND is_admin = FALSE
+                    ORDER BY name
+                ''', (status,))
+                
+                rows = await cursor.fetchall()
+                
+                soldiers = []
+                for row in rows:
+                    soldiers.append({
+                        'telegram_id': row[0],
+                        'name': row[1],
+                        'location': row[2],
+                        'last_status_change': row[3],
+                        'status': row[4]
+                    })
+                
+                return soldiers
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения солдат по статусу: {e}")
+            return []
+    
+    async def get_soldiers_in_unit(self) -> List[Dict]:
+        """Получение солдат в части"""
+        return await self.get_soldiers_by_status('в_части')
+    
+    async def get_soldiers_away(self) -> List[Dict]:
+        """Получение солдат вне части"""
+        return await self.get_soldiers_by_status('вне_части')
+    
+    async def get_soldiers_count_by_status(self, status: str) -> int:
+        """Получение количества солдат по статусу"""
+        soldiers = await self.get_soldiers_by_status(status)
+        return len(soldiers)
+    
+    async def get_soldiers_away_by_location(self) -> Dict[str, List[Dict]]:
+        """Получение солдат вне части, сгруппированных по локациям"""
+        try:
+            soldiers_away = await self.get_soldiers_away()
+            
+            locations = {}
+            for soldier in soldiers_away:
+                location = soldier.get('location') or 'не указано'
+                if location not in locations:
+                    locations[location] = []
+                locations[location].append(soldier)
+            
+            return locations
+            
+        except Exception as e:
+            logger.error(f"Ошибка группировки по локациям: {e}")
+            return {}
+    
+    async def mark_soldier_arrival(self, telegram_id: int) -> bool:
+        """Отметка прибытия солдата в часть"""
+        return await self.set_soldier_status(telegram_id, 'в_части', None)
+    
+    async def mark_soldier_departure(self, telegram_id: int, location: str) -> bool:
+        """Отметка убытия солдата из части"""
+        return await self.set_soldier_status(telegram_id, 'вне_части', location)
+    
+    async def is_soldier_in_unit(self, telegram_id: int) -> bool:
+        """Проверка, находится ли солдат в части"""
+        status = await self.get_soldier_status(telegram_id)
+        return status and status.get('status') == 'в_части'
+    
+    async def is_soldier_away(self, telegram_id: int) -> bool:
+        """Проверка, находится ли солдат вне части"""
+        status = await self.get_soldier_status(telegram_id)
+        return status and status.get('status') == 'вне_части'
