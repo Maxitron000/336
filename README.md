@@ -119,13 +119,13 @@ python run_bot.py
 
 6. **Настройте Scheduled Task:**
    - Command: `/home/yourusername/telegram_bot/venv_bot/bin/python /home/yourusername/telegram_bot/run_bot.py`
-   - Hour: `*` (каждый час)
+   - Hour: `12` (раз в сутки в 12:00)
    - Minute: `0`
 
 ### Особенности для бесплатного аккаунта
 
 - **Рабочие часы:** 6:00-23:00 (экономия CPU времени)
-- **Автоперезапуск:** Каждый час через Scheduled Task
+- **Автоперезапуск:** Раз в сутки через Scheduled Task
 - **Оптимизация памяти:** Автоматический контроль использования ресурсов
 
 ## 📊 Функции бота

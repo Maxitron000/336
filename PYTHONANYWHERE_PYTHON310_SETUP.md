@@ -116,7 +116,7 @@ python main.py
 2. Нажмите **"Create a scheduled task"**
 3. Заполните:
    - **Command:** `/home/yourusername/telegram_bot/venv_bot/bin/python /home/yourusername/telegram_bot/run_bot.py`
-   - **Hour:** `*` (каждый час)
+   - **Hour:** `12` (раз в сутки в 12:00)
    - **Minute:** `0`
    - **Description:** `Telegram Bot Auto-restart`
 
@@ -173,13 +173,13 @@ python run_bot.py
 ### **Лимиты:**
 - ❌ Нет "Always-On Tasks"
 - ⏰ 3000 CPU секунд в месяц
-- 🔄 Scheduled Tasks только каждый час
+- 🔄 Scheduled Tasks только раз в сутки
 - 🌐 Ограниченный интернет доступ
 
 ### **Оптимизация для бесплатного аккаунта:**
 
 1. **Рабочие часы:** Бот работает только 5:00-24:00 (настроено в `run_bot.py`)
-2. **Автоперезапуск:** Каждый час через Scheduled Task
+2. **Автоперезапуск:** Раз в сутки через Scheduled Task
 3. **Легкий мониторинг:** Минимальные ресурсы
 
 ---

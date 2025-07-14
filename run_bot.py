@@ -41,8 +41,8 @@ class PythonAnywhereConfig:
     MAX_MEMORY_MB = 100
     
     # Новые настройки мониторинга
-    AUTO_RESTART_INTERVAL = 3600  # 1 час
-    HEALTH_REPORT_INTERVAL = 21600  # 6 часов
+    AUTO_RESTART_INTERVAL = 86400  # 1 раз в сутки
+HEALTH_REPORT_INTERVAL = 43200  # 12 часов
     ERROR_NOTIFICATION_ENABLED = True
 
 # Глобальные переменные
@@ -137,7 +137,7 @@ async def run_bot_async():
         # Настраиваем executor для PythonAnywhere
         await on_startup(dp)
         
-        # Планируем отчёты о здоровье каждые 6 часов
+        # Планируем отчёты о здоровье каждые 12 часов
         last_health_report = time.time()
         
         # Запускаем polling с мониторингом
@@ -333,8 +333,8 @@ def wait_for_next_session():
         wait_seconds = (next_start - now).total_seconds()
         logger.info(f"Вне рабочих часов. Следующий запуск: {next_start}")
         
-        # Ждем максимум 1 час (для Scheduled Task)
-        wait_time = min(wait_seconds, 3600)
+            # Ждем максимум 2 часа (для Scheduled Task раз в сутки)
+    wait_time = min(wait_seconds, 7200)
         time.sleep(wait_time)
         return False
     
@@ -344,7 +344,7 @@ def wait_for_next_session():
     return True
 
 def main():
-    """Главная функция для PythonAnywhere с автоматическим перезапуском каждый час"""
+    """Главная функция для PythonAnywhere с автоматическим перезапуском раз в сутки"""
     global running, start_time, restart_count, error_count, last_health_report
     
     # Регистрируем обработчики сигналов
@@ -357,8 +357,8 @@ def main():
     logger.info("🤖 Бот для PythonAnywhere запущен с автоматическим мониторингом")
     logger.info(f"📅 Время запуска: {datetime.now()}")
     logger.info(f"⏰ Рабочие часы: {PythonAnywhereConfig.WORK_START_HOUR}:00-{PythonAnywhereConfig.WORK_END_HOUR}:00")
-    logger.info(f"🔄 Автоперезапуск: каждый час")
-    logger.info(f"📊 Отчёты админу: каждые 6 часов")
+    logger.info(f"🔄 Автоперезапуск: раз в сутки")
+    logger.info(f"📊 Отчёты админу: каждые 12 часов")
     
     max_restarts = 10  # Увеличили лимит
     session_start_time = time.time()
@@ -371,7 +371,7 @@ def main():
                 if not wait_for_next_session():
                     continue
             
-            # Проверяем, нужно ли перезапускаться каждый час
+            # Проверяем, нужно ли перезапускаться раз в сутки
             current_time = time.time()
             session_duration = current_time - session_start_time
             

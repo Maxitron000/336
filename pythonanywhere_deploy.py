@@ -84,19 +84,19 @@ def create_scheduled_task_info(username):
     bash_script = create_bash_script(username)
     
     info = {
-        "task_type": "hourly",
+        "task_type": "daily",
         "command": command,
         "bash_script": bash_script,
-        "description": "Telegram Bot Auto-restart",
+        "description": "Telegram Bot Daily Restart",
         "instructions": [
             "1. Откройте PythonAnywhere Dashboard",
             "2. Перейдите в 'Tasks' → 'Scheduled'",
             "3. Нажмите 'Create a scheduled task'",
             "4. Заполните:",
             f"   Command: {command}",
-            "   Hour: * (каждый час)",
+            "   Hour: 12 (раз в сутки в 12:00)",
             "   Minute: 0",
-            f"   Description: Telegram Bot Auto-restart",
+            f"   Description: Telegram Bot Daily Restart",
             "5. Сохраните задачу"
         ]
     }
@@ -134,10 +134,10 @@ import sys
 import os
 from datetime import datetime
 
-def run_hourly_task():
+def run_daily_task():
     try:
-        print(f"🔄 Hourly restart: {datetime.now()}")
-        subprocess.run([sys.executable, "run_bot.py"], timeout=3500)  # 58 минут
+        print(f"🔄 Daily restart: {datetime.now()}")
+        subprocess.run([sys.executable, "run_bot.py"], timeout=86000)  # 23 часа 53 минуты
     except subprocess.TimeoutExpired:
         print("⏰ Timeout reached, restarting...")
     except Exception as e:
@@ -147,8 +147,8 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
     while True:
-        run_hourly_task()
-        time.sleep(60)  # 1 минута пауза перед следующим запуском
+        run_daily_task()
+        time.sleep(300)  # 5 минут пауза перед следующим запуском
 """
     
     with open('cron_alternative.py', 'w') as f:

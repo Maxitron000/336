@@ -31,7 +31,7 @@ class BotMonitor:
         self.start_time = None
         self.restart_count = 0
         self.last_health_check = None
-        self.max_restarts_per_hour = 10
+        self.max_restarts_per_day = 5
         
         # Создаём необходимые директории
         os.makedirs('logs', exist_ok=True)
@@ -165,15 +165,15 @@ class BotMonitor:
         """Определение, нужно ли перезапускать бота"""
         current_time = datetime.now()
         
-        # Проверяем лимит перезапусков в час
-        if self.restart_count > self.max_restarts_per_hour:
-            logger.warning(f"⚠️ Превышен лимит перезапусков в час: {self.restart_count}")
-            return False
-        
-        # Перезапуск каждый час для профилактики
-        if self.start_time and current_time - self.start_time > timedelta(hours=1):
-            logger.info("⏰ Плановый перезапуск (каждый час)")
-            return True
+                    # Проверяем лимит перезапусков в день
+            if self.restart_count > self.max_restarts_per_day:
+                logger.warning(f"⚠️ Превышен лимит перезапусков в день: {self.restart_count}")
+                return False
+            
+            # Перезапуск раз в сутки для профилактики
+            if self.start_time and current_time - self.start_time > timedelta(days=1):
+                logger.info("⏰ Плановый перезапуск (раз в сутки)")
+                return True
         
         # Проверка здоровья
         if not self.check_bot_health():
@@ -185,15 +185,15 @@ class BotMonitor:
     def monitor_loop(self):
         """Основной цикл мониторинга"""
         logger.info("🔍 Запуск системы мониторинга...")
-        logger.info("🔄 Автоперезапуск: каждый час")
+                    logger.info("🔄 Автоперезапуск: раз в сутки")
         logger.info("📊 Проверка здоровья: каждые 5 минут")
         
         while True:
             try:
                 current_time = datetime.now()
                 
-                # Сброс счётчика перезапусков каждый час
-                if hasattr(self, '_last_reset') and current_time - self._last_reset > timedelta(hours=1):
+                            # Сброс счётчика перезапусков каждые сутки
+            if hasattr(self, '_last_reset') and current_time - self._last_reset > timedelta(days=1):
                     self.restart_count = 0
                     self._last_reset = current_time
                 elif not hasattr(self, '_last_reset'):

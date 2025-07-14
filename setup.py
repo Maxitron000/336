@@ -142,8 +142,8 @@ LOG_FILE=logs/bot.log
 EXPORT_PATH=exports/
 
 # Настройки мониторинга
-HEALTH_CHECK_INTERVAL=21600  # 6 часов
-AUTO_RESTART_INTERVAL=3600   # 1 час
+HEALTH_CHECK_INTERVAL=43200  # 12 часов
+AUTO_RESTART_INTERVAL=86400  # 1 раз в сутки
 ERROR_NOTIFICATION_ENABLED=true
 PERFORMANCE_MONITORING=true
 """
@@ -403,8 +403,8 @@ def print_success():
         print()
     
     print("📊 Мониторинг:")
-    print("   - Автоперезапуск каждый час")
-    print("   - Отчёты админу каждые 6 часов")
+    print("   - Автоперезапуск раз в сутки")
+    print("   - Отчёты админу каждые 12 часов")
     print("   - Уведомления об ошибках")
     print()
     print("📁 Файлы:")
