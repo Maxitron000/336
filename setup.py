@@ -176,24 +176,44 @@ def install_dependencies():
         print("🔄 Обновление pip...")
         pip_result = subprocess.run([
             python_exe, "-m", "pip", "install", "--upgrade", "pip"
-        ], capture_output=True, text=True)
+        ], capture_output=True, text=True, timeout=300)
         
         if pip_result.returncode != 0:
             print(f"⚠️ Предупреждение при обновлении pip: {pip_result.stderr}")
         
-        # Устанавливаем зависимости
+        # Устанавливаем зависимости с увеличенным timeout
         print("📥 Установка зависимостей...")
         result = subprocess.run([
-            python_exe, "-m", "pip", "install", "-r", req_file
-        ], capture_output=True, text=True)
+            python_exe, "-m", "pip", "install", "-r", req_file, "--timeout", "300"
+        ], capture_output=True, text=True, timeout=600)
         
         if result.returncode == 0:
             print("✅ Зависимости установлены успешно в виртуальное окружение")
+            
+            # Проверяем критичные пакеты
+            critical_packages = ['aiogram', 'aiosqlite', 'psutil', 'python-dotenv']
+            print("🔍 Проверка критичных пакетов...")
+            
+            for package in critical_packages:
+                check_result = subprocess.run([
+                    python_exe, "-c", f"import {package.replace('-', '_')}; print('✓ {package}')"
+                ], capture_output=True, text=True)
+                
+                if check_result.returncode == 0:
+                    print(f"  ✅ {package}")
+                else:
+                    print(f"  ❌ {package} - проблема импорта")
+            
             return True
         else:
             print(f"❌ Ошибка установки зависимостей: {result.stderr}")
+            print("💡 Попробуйте запустить: pip install -r requirements.txt вручную")
             return False
             
+    except subprocess.TimeoutExpired:
+        print("❌ Превышено время ожидания установки зависимостей")
+        print("💡 Попробуйте установить зависимости вручную")
+        return False
     except Exception as e:
         print(f"❌ Ошибка установки: {e}")
         return False
