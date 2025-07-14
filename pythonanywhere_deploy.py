@@ -124,37 +124,70 @@ def check_environment():
     
     return all_ok
 
-def create_cron_alternative():
-    """Создание альтернативы cron для бесплатного аккаунта"""
-    script_content = """#!/usr/bin/env python3
-# Альтернатива cron для бесплатного аккаунта PythonAnywhere
-import time
-import subprocess
-import sys
+def create_optimized_24x7_config():
+    """Создание оптимизированной конфигурации для работы 24/7"""
+    
+    # Создаем улучшенный скрипт для Scheduled Task
+    pa_runner_content = """#!/usr/bin/env python3
+# Оптимизированный запуск для PythonAnywhere 24/7
 import os
+import sys
+import subprocess
 from datetime import datetime
 
-def run_hourly_task():
+def main():
+    # Переходим в директорию проекта
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(script_dir)
+    
+    print("🚀 PA 24/7 Runner запущен:", datetime.now())
+    
+    # Путь к Python в виртуальном окружении
+    venv_python = "venv_bot/bin/python"
+    
+    if not os.path.exists(venv_python):
+        print("❌ Виртуальное окружение не найдено!")
+        return 1
+    
+    # Запускаем оптимизированный монитор 24/7
     try:
-        print(f"🔄 Hourly restart: {datetime.now()}")
-        subprocess.run([sys.executable, "run_bot.py"], timeout=3500)  # 58 минут
-    except subprocess.TimeoutExpired:
-        print("⏰ Timeout reached, restarting...")
+        print("🤖 Запуск PA 24x7 Monitor...")
+        subprocess.run([venv_python, "pa_24x7_monitor.py"])
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print("❌ Ошибка запуска монитора:", str(e))
+        # Fallback - запускаем обычный бот
+        print("🔄 Fallback: запуск обычного бота...")
+        subprocess.run([venv_python, "run_bot.py"])
+    
+    return 0
 
 if __name__ == "__main__":
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    
-    while True:
-        run_hourly_task()
-        time.sleep(60)  # 1 минута пауза перед следующим запуском
+    sys.exit(main())
 """
     
-    with open('cron_alternative.py', 'w') as f:
-        f.write(script_content)
+    with open('pa_runner.py', 'w') as f:
+        f.write(pa_runner_content)
     
-    print("✅ Создан cron_alternative.py (для бесплатного аккаунта)")
+    # Делаем исполняемым
+    os.chmod('pa_runner.py', 0o755)
+    
+    print("✅ Создан pa_runner.py (оптимизированный запуск для PA)")
+    
+    # Создаем конфигурацию для Scheduled Task
+    task_config = {
+        "hourly_task": {
+            "command": "python3.10 pa_runner.py",
+            "description": "Telegram Bot 24/7 Monitor",
+            "interval": "hourly",
+            "features": [
+                "Автоматический перезапуск каждые 55 минут",
+                "Отчеты о здоровье каждые 6 часов",
+                "Уведомления об ошибках в реальном времени"
+            ]
+        }
+    }
+    
+    return task_config
 
 def print_deployment_instructions(username, task_info):
     """Вывод инструкций по развёртыванию"""
@@ -170,8 +203,9 @@ def print_deployment_instructions(username, task_info):
     print(f"\nВариант B - Bash скрипт:")
     print(f"  Команда: {task_info['bash_script']}")
     
-    print(f"\nВариант C - Cron альтернатива (для бесплатного аккаунта):")
-    print(f"  python cron_alternative.py")
+    print(f"\nВариант C - Оптимизированный 24/7 запуск (РЕКОМЕНДУЕТСЯ):")
+    print(f"  python pa_runner.py")
+    print(f"  ✨ Включает: перезапуск каждые 55 мин, отчеты каждые 6 ч, уведомления об ошибках")
     
     print("\n📊 2. МОНИТОРИНГ:")
     print("  - Логи: tail -f logs/bot.log")
@@ -213,7 +247,7 @@ def main():
     # Создаём файлы развёртывания
     print("\n📁 Создание файлов развёртывания...")
     task_info = create_scheduled_task_info(username)
-    create_cron_alternative()
+    task_config = create_optimized_24x7_config()
     
     # Выводим инструкции
     print_deployment_instructions(username, task_info)
