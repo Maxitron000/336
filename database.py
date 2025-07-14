@@ -66,6 +66,11 @@ class Database:
             except:
                 pass
             
+            try:
+                await cursor.execute('ALTER TABLE users ADD COLUMN username TEXT')
+            except:
+                pass
+            
             # Таблица отметок
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS attendance (
@@ -105,6 +110,25 @@ class Database:
                 )
             ''')
             
+            # Таблица прав доступа для командиров
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS commander_permissions (
+                    id INTEGER PRIMARY KEY,
+                    user_id INTEGER UNIQUE NOT NULL,
+                    can_view_personnel BOOLEAN DEFAULT TRUE,
+                    can_manage_personnel BOOLEAN DEFAULT FALSE,
+                    can_export_data BOOLEAN DEFAULT FALSE,
+                    can_view_journal BOOLEAN DEFAULT TRUE,
+                    can_clear_journal BOOLEAN DEFAULT FALSE,
+                    can_manage_notifications BOOLEAN DEFAULT FALSE,
+                    can_view_stats BOOLEAN DEFAULT TRUE,
+                    can_force_operations BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (id)
+                )
+            ''')
+            
             # Создаем индексы для оптимизации
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date)')
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_attendance_user ON attendance(user_id)')
@@ -134,14 +158,14 @@ class Database:
             return False
     
     # Методы для работы с пользователями
-    async def add_user(self, telegram_id: int, name: str, location: str = None) -> bool:
+    async def add_user(self, telegram_id: int, name: str, location: str = None, username: str = None) -> bool:
         """Добавление нового пользователя"""
         try:
             async with self.connection.cursor() as cursor:
                 await cursor.execute('''
-                    INSERT OR REPLACE INTO users (telegram_id, name, location)
-                    VALUES (?, ?, ?)
-                ''', (telegram_id, name, location))
+                    INSERT OR REPLACE INTO users (telegram_id, name, location, username)
+                    VALUES (?, ?, ?, ?)
+                ''', (telegram_id, name, location, username))
                 
                 user_id = cursor.lastrowid
                 
@@ -361,17 +385,55 @@ class Database:
         except Exception as e:
             logger.error(f"Ошибка логирования события: {e}")
     
-    async def get_events(self, limit: int = 100) -> List[Dict]:
-        """Получение последних событий"""
+    async def get_events(self, limit: int = 100, filters: Dict = None) -> List[Dict]:
+        """Получение событий с фильтрами"""
         try:
+            # Базовый запрос
+            query = '''
+                SELECT e.action, e.details, e.timestamp, u.name, u.username
+                FROM events e
+                LEFT JOIN users u ON e.user_id = u.id
+            '''
+            
+            conditions = []
+            params = []
+            
+            # Применяем фильтры
+            if filters:
+                if filters.get('start_date'):
+                    conditions.append("DATE(e.timestamp) >= ?")
+                    params.append(filters['start_date'])
+                
+                if filters.get('end_date'):
+                    conditions.append("DATE(e.timestamp) <= ?")
+                    params.append(filters['end_date'])
+                
+                if filters.get('user_name'):
+                    conditions.append("u.name LIKE ?")
+                    params.append(f"%{filters['user_name']}%")
+                
+                if filters.get('action'):
+                    conditions.append("e.action LIKE ?")
+                    params.append(f"%{filters['action']}%")
+                
+                if filters.get('period'):
+                    period = filters['period']
+                    if period == 'today':
+                        conditions.append("DATE(e.timestamp) = DATE('now')")
+                    elif period == 'week':
+                        conditions.append("DATE(e.timestamp) >= DATE('now', '-7 days')")
+                    elif period == 'month':
+                        conditions.append("DATE(e.timestamp) >= DATE('now', '-30 days')")
+            
+            # Добавляем условия к запросу
+            if conditions:
+                query += ' WHERE ' + ' AND '.join(conditions)
+            
+            query += ' ORDER BY e.timestamp DESC LIMIT ?'
+            params.append(limit)
+            
             async with self.connection.cursor() as cursor:
-                await cursor.execute('''
-                    SELECT e.action, e.details, e.timestamp, u.name
-                    FROM events e
-                    LEFT JOIN users u ON e.user_id = u.id
-                    ORDER BY e.timestamp DESC
-                    LIMIT ?
-                ''', (limit,))
+                await cursor.execute(query, params)
                 
                 rows = await cursor.fetchall()
                 return [
@@ -379,14 +441,71 @@ class Database:
                         'action': row[0],
                         'details': row[1],
                         'timestamp': row[2],
-                        'user_name': row[3] or 'Система'
+                        'user_name': row[3] or 'Система',
+                        'username': row[4]
                     }
                     for row in rows
-                ]
+                                  ]
         except Exception as e:
             logger.error(f"Ошибка получения событий: {e}")
             return []
     
+    async def get_events_stats(self, filters: Dict = None) -> Dict:
+        """Получение статистики по журналу событий"""
+        try:
+            # Базовый запрос для подсчета событий по типам
+            query = '''
+                SELECT e.action, COUNT(*) as count
+                FROM events e
+                LEFT JOIN users u ON e.user_id = u.id
+            '''
+            
+            conditions = []
+            params = []
+            
+            # Применяем те же фильтры что и в get_events
+            if filters:
+                if filters.get('start_date'):
+                    conditions.append("DATE(e.timestamp) >= ?")
+                    params.append(filters['start_date'])
+                
+                if filters.get('end_date'):
+                    conditions.append("DATE(e.timestamp) <= ?")
+                    params.append(filters['end_date'])
+                
+                if filters.get('user_name'):
+                    conditions.append("u.name LIKE ?")
+                    params.append(f"%{filters['user_name']}%")
+                
+                if filters.get('period'):
+                    period = filters['period']
+                    if period == 'today':
+                        conditions.append("DATE(e.timestamp) = DATE('now')")
+                    elif period == 'week':
+                        conditions.append("DATE(e.timestamp) >= DATE('now', '-7 days')")
+                    elif period == 'month':
+                        conditions.append("DATE(e.timestamp) >= DATE('now', '-30 days')")
+            
+            if conditions:
+                query += ' WHERE ' + ' AND '.join(conditions)
+            
+            query += ' GROUP BY e.action ORDER BY count DESC'
+            
+            async with self.connection.cursor() as cursor:
+                await cursor.execute(query, params)
+                rows = await cursor.fetchall()
+                
+                stats = {
+                    'total_events': sum(row[1] for row in rows),
+                    'by_action': {row[0]: row[1] for row in rows}
+                }
+                
+                return stats
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения статистики событий: {e}")
+            return {}
+
     # Методы для экспорта
     async def export_attendance_csv(self, start_date: date, end_date: date) -> str:
         """Экспорт отметок в CSV"""
@@ -584,3 +703,95 @@ class Database:
         """Проверка, находится ли солдат вне части"""
         status = await self.get_soldier_status(telegram_id)
         return status and status.get('status') == 'вне_части'
+    
+    # Методы для работы с правами командиров
+    async def get_commander_permissions(self, telegram_id: int) -> Optional[Dict]:
+        """Получение прав доступа командира"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return None
+                
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    SELECT * FROM commander_permissions WHERE user_id = ?
+                ''', (user['id'],))
+                
+                row = await cursor.fetchone()
+                if row:
+                    columns = [description[0] for description in cursor.description]
+                    return dict(zip(columns, row))
+                else:
+                    # Создаем права по умолчанию для командира
+                    await self.create_default_commander_permissions(user['id'])
+                    return await self.get_commander_permissions(telegram_id)
+                    
+        except Exception as e:
+            logger.error(f"Ошибка получения прав командира: {e}")
+            return None
+    
+    async def create_default_commander_permissions(self, user_id: int) -> bool:
+        """Создание прав по умолчанию для командира"""
+        try:
+            async with self.connection.cursor() as cursor:
+                await cursor.execute('''
+                    INSERT OR IGNORE INTO commander_permissions (user_id)
+                    VALUES (?)
+                ''', (user_id,))
+                await self.connection.commit()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Ошибка создания прав командира: {e}")
+            return False
+    
+    async def update_commander_permissions(self, telegram_id: int, permissions: Dict) -> bool:
+        """Обновление прав доступа командира"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return False
+                
+            # Проверяем существуют ли права для этого пользователя
+            existing_permissions = await self.get_commander_permissions(telegram_id)
+            if not existing_permissions:
+                await self.create_default_commander_permissions(user['id'])
+            
+            async with self.connection.cursor() as cursor:
+                update_fields = []
+                values = []
+                
+                for permission, value in permissions.items():
+                    if permission.startswith('can_'):
+                        update_fields.append(f"{permission} = ?")
+                        values.append(value)
+                
+                if update_fields:
+                    values.append(user['id'])
+                    await cursor.execute(f'''
+                        UPDATE commander_permissions 
+                        SET {', '.join(update_fields)}, updated_at = CURRENT_TIMESTAMP
+                        WHERE user_id = ?
+                    ''', values)
+                    await self.connection.commit()
+                    
+                    # Логируем изменение прав
+                    await self.log_event(user['id'], "permissions_updated", f"Обновлены права доступа: {permissions}")
+                    return True
+                    
+        except Exception as e:
+            logger.error(f"Ошибка обновления прав командира: {e}")
+            return False
+    
+    async def check_commander_permission(self, telegram_id: int, permission: str) -> bool:
+        """Проверка конкретного права доступа командира"""
+        try:
+            permissions = await self.get_commander_permissions(telegram_id)
+            if not permissions:
+                return False
+                
+            return permissions.get(permission, False)
+            
+        except Exception as e:
+            logger.error(f"Ошибка проверки права доступа: {e}")
+            return False

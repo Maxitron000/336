@@ -91,62 +91,153 @@ async def export_to_csv(logs_data: List[Dict], users_data: List[Dict], export_di
         raise
 
 async def export_to_excel(logs_data: List[Dict], users_data: List[Dict], export_dir: str, filename: str) -> str:
-    """Экспорт данных в Excel формат"""
+    """Экспорт данных в Excel формат с цветовой заливкой"""
     try:
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        from openpyxl.utils.dataframe import dataframe_to_rows
+        
         filepath = os.path.join(export_dir, f"{filename}.xlsx")
         
-        # Создаем Excel файл с несколькими листами
-        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-            # Лист с журналом действий
-            logs_df = pd.DataFrame([
-                {
-                    'Дата и время': format_datetime(log['timestamp']),
-                    'ФИО': log['full_name'],
-                    'Telegram ID': log['telegram_id'],
-                    'Действие': 'Прибыл' if log['action'] == 'arrived' else 'Покинул',
-                    'Локация': log['location']
-                }
-                for log in logs_data
-            ])
-            logs_df.to_excel(writer, sheet_name='Журнал действий', index=False)
-            
-            # Лист с пользователями
-            users_df = pd.DataFrame([
-                {
-                    'ФИО': user['full_name'],
-                    'Telegram ID': user['telegram_id'],
-                    'Username': user.get('username', ''),
-                    'Администратор': 'Да' if user.get('is_admin') else 'Нет',
-                    'Дата регистрации': format_datetime(user['registered_at']) if user.get('registered_at') else '',
-                    'Последняя активность': format_datetime(user['last_activity']) if user.get('last_activity') else ''
-                }
-                for user in users_data
-            ])
-            users_df.to_excel(writer, sheet_name='Пользователи', index=False)
-            
-            # Лист с текущими локациями
-            active_locations = get_active_users_by_location()
-            current_locations = []
-            
-            for location, users in active_locations.items():
-                for user in users:
-                    current_locations.append({
-                        'ФИО': user['full_name'],
-                        'Telegram ID': user['telegram_id'],
-                        'Локация': location,
-                        'Время прибытия': format_datetime(user['entered_at'])
-                    })
-            
-            if current_locations:
-                locations_df = pd.DataFrame(current_locations)
-                locations_df.to_excel(writer, sheet_name='Текущие локации', index=False)
-            
-            # Лист со статистикой
-            stats_data = generate_statistics_data(logs_data, users_data)
-            stats_df = pd.DataFrame(stats_data)
-            stats_df.to_excel(writer, sheet_name='Статистика', index=False)
+        # Создаем Excel файл
+        from openpyxl import Workbook
+        wb = Workbook()
         
-        logger.info(f"Экспорт Excel завершен: {filepath}")
+        # Определяем стили
+        green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")  # Светло-зеленый
+        red_fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")   # Светло-красный
+        blue_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")  # Светло-голубой
+        header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid") # Синий заголовок
+        
+        header_font = Font(color="FFFFFF", bold=True)
+        bold_font = Font(bold=True)
+        center_alignment = Alignment(horizontal="center", vertical="center")
+        thin_border = Border(
+            left=Side(style="thin"), right=Side(style="thin"), 
+            top=Side(style="thin"), bottom=Side(style="thin")
+        )
+        
+        # === Лист 1: Журнал действий ===
+        ws_journal = wb.active
+        ws_journal.title = "Журнал действий"
+        
+        # Заголовки
+        headers = ['Дата и время', 'ФИО', 'Telegram ID', 'Действие', 'Локация']
+        for col, header in enumerate(headers, 1):
+            cell = ws_journal.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = center_alignment
+            cell.border = thin_border
+        
+        # Данные журнала
+        for row_idx, log in enumerate(logs_data, 2):
+            action_text = 'Прибыл' if log['action'] == 'arrived' else 'Убыл'
+            
+            # Заполняем данные
+            ws_journal.cell(row=row_idx, column=1, value=format_datetime(log['timestamp']))
+            ws_journal.cell(row=row_idx, column=2, value=log['full_name'])
+            ws_journal.cell(row=row_idx, column=3, value=log['telegram_id'])
+            ws_journal.cell(row=row_idx, column=4, value=action_text)
+            ws_journal.cell(row=row_idx, column=5, value=log['location'])
+            
+            # Применяем цветовую заливку в зависимости от действия
+            fill_color = green_fill if log['action'] == 'arrived' else red_fill
+            
+            for col in range(1, 6):
+                cell = ws_journal.cell(row=row_idx, column=col)
+                cell.fill = fill_color
+                cell.border = thin_border
+                cell.alignment = center_alignment
+        
+        # Автоподбор ширины колонок
+        for col in range(1, 6):
+            ws_journal.column_dimensions[chr(64 + col)].width = 20
+        
+        # === Лист 2: Пользователи ===
+        ws_users = wb.create_sheet("Пользователи")
+        
+        # Заголовки
+        user_headers = ['ФИО', 'Telegram ID', 'Username', 'Администратор', 'Дата регистрации', 'Последняя активность']
+        for col, header in enumerate(user_headers, 1):
+            cell = ws_users.cell(row=1, column=col, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = center_alignment
+            cell.border = thin_border
+        
+        # Данные пользователей
+        for row_idx, user in enumerate(users_data, 2):
+            ws_users.cell(row=row_idx, column=1, value=user.get('full_name', user.get('name', '')))
+            ws_users.cell(row=row_idx, column=2, value=user['telegram_id'])
+            ws_users.cell(row=row_idx, column=3, value=user.get('username', ''))
+            ws_users.cell(row=row_idx, column=4, value='Да' if user.get('is_admin') else 'Нет')
+            ws_users.cell(row=row_idx, column=5, value=format_datetime(user.get('created_at', '')) if user.get('created_at') else '')
+            ws_users.cell(row=row_idx, column=6, value=format_datetime(user.get('updated_at', '')) if user.get('updated_at') else '')
+            
+            # Выделяем админов голубым цветом
+            fill_color = blue_fill if user.get('is_admin') else None
+            
+            for col in range(1, 7):
+                cell = ws_users.cell(row=row_idx, column=col)
+                if fill_color:
+                    cell.fill = fill_color
+                cell.border = thin_border
+                cell.alignment = center_alignment
+        
+        # Автоподбор ширины колонок
+        for col in range(1, 7):
+            ws_users.column_dimensions[chr(64 + col)].width = 18
+        
+        # === Лист 3: Статистика ===
+        ws_stats = wb.create_sheet("Статистика")
+        
+        # Общая статистика
+        stats = [
+            ["Показатель", "Значение"],
+            ["Всего записей в журнале", len(logs_data)],
+            ["Всего пользователей", len(users_data)],
+            ["Администраторов", sum(1 for user in users_data if user.get('is_admin'))],
+            ["Обычных пользователей", len(users_data) - sum(1 for user in users_data if user.get('is_admin'))],
+            ["", ""],  # Пустая строка
+            ["Действия", "Количество"],
+        ]
+        
+        # Считаем действия
+        actions_count = {}
+        for log in logs_data:
+            action = 'Прибытия' if log['action'] == 'arrived' else 'Убытия'
+            actions_count[action] = actions_count.get(action, 0) + 1
+        
+        for action, count in actions_count.items():
+            stats.append([action, count])
+        
+        # Записываем статистику
+        for row_idx, (key, value) in enumerate(stats, 1):
+            ws_stats.cell(row=row_idx, column=1, value=key)
+            ws_stats.cell(row=row_idx, column=2, value=value)
+            
+            # Выделяем заголовки
+            if row_idx == 1 or row_idx == 7:
+                for col in range(1, 3):
+                    cell = ws_stats.cell(row=row_idx, column=col)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = center_alignment
+                    cell.border = thin_border
+            else:
+                for col in range(1, 3):
+                    cell = ws_stats.cell(row=row_idx, column=col)
+                    cell.border = thin_border
+                    cell.alignment = center_alignment
+        
+        # Автоподбор ширины колонок
+        ws_stats.column_dimensions['A'].width = 25
+        ws_stats.column_dimensions['B'].width = 15
+        
+        # Сохраняем файл
+        wb.save(filepath)
+        
+        logger.info(f"Экспорт Excel с цветовой заливкой завершен: {filepath}")
         return filepath
         
     except Exception as e:
