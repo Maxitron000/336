@@ -21,7 +21,7 @@ def get_soldier_keyboard():
             InlineKeyboardButton("❌ Убыл", callback_data=user_cb.new("departed"))
         ],
         [
-            InlineKeyboardButton("� Мой статус", callback_data=user_cb.new("my_status"))
+            InlineKeyboardButton("📊 Мой статус", callback_data=user_cb.new("my_status"))
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -53,9 +53,9 @@ def get_admin_keyboard():
         ],
         [
             InlineKeyboardButton("🏥 Мониторинг бота", callback_data=admin_cb.new("monitoring", "")),
-            InlineKeyboardButton("� Техобслуживание", callback_data=admin_cb.new("maintenance", ""))
+            InlineKeyboardButton("🔧 Техобслуживание", callback_data=admin_cb.new("maintenance", ""))
         ],
-        [InlineKeyboardButton("� Назад", callback_data=user_cb.new("back_to_main"))]
+        [InlineKeyboardButton("🔙 Назад", callback_data=user_cb.new("back_to_main"))]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -78,11 +78,11 @@ def get_journal_keyboard():
     """Клавиатура журнала событий - Уровень 2: Меню «📖 Журнал событий»"""
     keyboard = [
         [
-            InlineKeyboardButton("� Фильтры", callback_data=admin_cb.new("journal", "filters")),
+            InlineKeyboardButton("🔍 Фильтры", callback_data=admin_cb.new("journal", "filters")),
             InlineKeyboardButton("📋 Последние события", callback_data=admin_cb.new("journal", "recent"))
         ],
         [
-            InlineKeyboardButton("� Экспорт журнала", callback_data=admin_cb.new("journal", "export")),
+            InlineKeyboardButton("📥 Экспорт журнала", callback_data=admin_cb.new("journal", "export")),
             InlineKeyboardButton("📊 Статистика", callback_data=admin_cb.new("journal", "stats"))
         ],
         [
@@ -121,9 +121,9 @@ def get_notifications_settings_keyboard():
         ],
         [
             InlineKeyboardButton("🔇 Тихий режим", callback_data=admin_cb.new("notifications", "silent_mode")),
-            InlineKeyboardButton("� Редактировать тексты", callback_data=admin_cb.new("notifications", "edit_texts"))
+            InlineKeyboardButton("✏️ Редактировать тексты", callback_data=admin_cb.new("notifications", "edit_texts"))
         ],
-        [InlineKeyboardButton("� Назад", callback_data=admin_cb.new("settings", ""))]
+        [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("settings", ""))]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -150,12 +150,12 @@ def get_danger_zone_keyboard():
     """Клавиатура опасной зоны - Уровень 3: Меню «⚠️ Опасная зона»"""
     keyboard = [
         [
-            InlineKeyboardButton("� Отметить всех прибывшими", callback_data=admin_cb.new("danger_zone", "mark_all_arrived")),
+            InlineKeyboardButton("✅ Отметить всех прибывшими", callback_data=admin_cb.new("danger_zone", "mark_all_arrived")),
             InlineKeyboardButton("🗑️ Очистить все данные", callback_data=admin_cb.new("danger_zone", "clear_all_data"))
         ],
         [
-            InlineKeyboardButton("� Сбросить настройки", callback_data=admin_cb.new("danger_zone", "reset_settings")),
-            InlineKeyboardButton("� Резервная копия", callback_data=admin_cb.new("danger_zone", "backup"))
+            InlineKeyboardButton("🔄 Сбросить настройки", callback_data=admin_cb.new("danger_zone", "reset_settings")),
+            InlineKeyboardButton("💾 Резервная копия", callback_data=admin_cb.new("danger_zone", "backup"))
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("settings", ""))]
     ]
@@ -175,16 +175,16 @@ def get_export_keyboard():
     """Клавиатура экспорта данных"""
     keyboard = [
         [
-            InlineKeyboardButton("� CSV формат", callback_data=admin_cb.new("export", "csv")),
-            InlineKeyboardButton("� Excel формат", callback_data=admin_cb.new("export", "excel"))
+            InlineKeyboardButton("📄 CSV формат", callback_data=admin_cb.new("export", "csv")),
+            InlineKeyboardButton("📊 Excel формат", callback_data=admin_cb.new("export", "excel"))
         ],
         [
             InlineKeyboardButton("📅 За сегодня", callback_data=admin_cb.new("export_period", "today")),
-            InlineKeyboardButton("� За неделю", callback_data=admin_cb.new("export_period", "week"))
+            InlineKeyboardButton("📅 За неделю", callback_data=admin_cb.new("export_period", "week"))
         ],
         [
             InlineKeyboardButton("📅 За месяц", callback_data=admin_cb.new("export_period", "month")),
-            InlineKeyboardButton("� За все время", callback_data=admin_cb.new("export_period", "all"))
+            InlineKeyboardButton("📅 За все время", callback_data=admin_cb.new("export_period", "all"))
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("journal", ""))]
     ]
@@ -194,11 +194,11 @@ def get_location_keyboard():
     """Клавиатура выбора локации для убытия"""
     keyboard = [
         [
-            InlineKeyboardButton("� Поликлиника", callback_data=user_cb.new("location_polyclinic")),
+            InlineKeyboardButton("🏥 Поликлиника", callback_data=user_cb.new("location_polyclinic")),
             InlineKeyboardButton("⚓ ОБРМП", callback_data=user_cb.new("location_obrmp"))
         ],
         [
-            InlineKeyboardButton("� Калининград", callback_data=user_cb.new("location_kaliningrad")),
+            InlineKeyboardButton("🌆 Калининград", callback_data=user_cb.new("location_kaliningrad")),
             InlineKeyboardButton("🛒 Магазин", callback_data=user_cb.new("location_shop"))
         ],
         [
@@ -210,7 +210,7 @@ def get_location_keyboard():
             InlineKeyboardButton("🩺 ВВК", callback_data=user_cb.new("location_vvk"))
         ],
         [
-            InlineKeyboardButton("�️ МФЦ", callback_data=user_cb.new("location_mfc")),
+            InlineKeyboardButton("🏛️ МФЦ", callback_data=user_cb.new("location_mfc")),
             InlineKeyboardButton("🚓 Патруль", callback_data=user_cb.new("location_patrol"))
         ],
         [

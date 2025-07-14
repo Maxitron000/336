@@ -21,7 +21,7 @@ from utils import (
     generate_user_info, generate_location_summary,
     generate_log_entry, get_current_time, format_datetime
 )
-from admin import handle_admin_callback
+# Удаляем некорректный импорт - функция определена в этом же файле
 
 logger = logging.getLogger(__name__)
 
@@ -365,6 +365,95 @@ async def handle_admin_callback(callback_query: types.CallbackQuery, data: str):
         else:
             action = parts[1] if len(parts) > 1 else ""
             subaction = ""
+        
+        # Специальная обработка для фильтров журнала
+        if action == "journal_filter" and subaction in ["by_name", "by_action"]:
+            # Запрашиваем ввод фильтра
+            filter_type = subaction
+            await callback_query.message.edit_text(
+                f"🔍 **Фильтр журнала**\n\n"
+                f"Введите {'ФИО пользователя' if filter_type == 'by_name' else 'тип действия'} для поиска:",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            # Переходим в состояние ожидания ввода
+            state = dp.current_state(user=user_id)
+            await state.set_state(UserStates.waiting_for_filter_input)
+            await state.update_data(filter_type=filter_type)
+            
+            await callback_query.answer()
+            return
+        
+        # Специальная обработка для опасных операций
+        dangerous_actions = [
+            "danger_zone:clear_all_data",
+            "danger_zone:reset_settings", 
+            "danger_zone:mark_all_arrived"
+        ]
+        
+        if f"{action}:{subaction}" in dangerous_actions:
+            from keyboards import get_danger_confirmation_keyboard
+            action_names = {
+                "clear_all_data": "Очистка всех данных",
+                "reset_settings": "Сброс настроек",
+                "mark_all_arrived": "Отметка всех прибывшими"
+            }
+            
+            await callback_query.message.edit_text(
+                f"⚠️ **ОПАСНАЯ ОПЕРАЦИЯ**\n\n"
+                f"Вы собираетесь выполнить: **{action_names.get(subaction, 'Неизвестная операция')}**\n\n"
+                f"Для подтверждения введите текст: **Да**\n\n"
+                f"⚠️ Это действие нельзя отменить!",
+                reply_markup=get_danger_confirmation_keyboard(subaction),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            
+            # Переходим в состояние ожидания подтверждения
+            state = dp.current_state(user=user_id)
+            await state.set_state(UserStates.waiting_for_danger_confirmation)
+            await state.update_data(danger_action=action_names.get(subaction, 'Неизвестная операция'))
+            
+            await callback_query.answer()
+            return
+        
+        # Обработка подтверждения текстом "Да"
+        if action == "confirm_text":
+            state = dp.current_state(user=user_id)
+            state_data = await state.get_data()
+            
+            if subaction == "yes" and state_data.get('text_confirmed'):
+                # Выполняем подтвержденную операцию
+                danger_action = state_data.get('danger_action')
+                
+                if "Очистка всех данных" in danger_action:
+                    success = await admin_panel.clear_all_data()
+                    message = "✅ Все данные очищены!" if success else "❌ Ошибка очистки данных"
+                elif "Сброс настроек" in danger_action:
+                    success = await admin_panel.reset_settings()
+                    message = "✅ Настройки сброшены!" if success else "❌ Ошибка сброса настроек"
+                elif "Отметка всех прибывшими" in danger_action:
+                    count = await admin_panel.mark_all_arrived("основная локация")
+                    message = f"✅ Все бойцы отмечены прибывшими!\n\nКоличество: {count}"
+                else:
+                    message = "❌ Неизвестная операция"
+                
+                from keyboards import get_admin_keyboard
+                await callback_query.message.edit_text(
+                    message,
+                    reply_markup=get_admin_keyboard(),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                await state.finish()
+            else:
+                await callback_query.message.edit_text(
+                    "❌ **Операция отменена**",
+                    reply_markup=get_admin_keyboard(),
+                    parse_mode=ParseMode.MARKDOWN
+                )
+                await state.finish()
+            
+            await callback_query.answer()
+            return
         
         # Обрабатываем через админ-панель
         message, keyboard = await admin_panel.handle_callback(data, user_id)
@@ -869,6 +958,11 @@ async def handle_initial_location_callback(callback_query: types.CallbackQuery, 
             await state.finish()
         else:
             await callback_query.answer("❌ Ошибка установки статуса")
+    
+    except Exception as e:
+        logger.error(f"Ошибка выбора локации при регистрации: {e}")
+        await callback_query.answer("❌ Произошла ошибка")
+        await state.finish()
 
 async def handle_danger_confirmation_input(message: types.Message, state: FSMContext, text: str):
     """Обработка ввода подтверждения для опасных операций"""

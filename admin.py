@@ -428,6 +428,12 @@ class AdminPanel:
             return get_monitoring_keyboard()
         elif action == "maintenance":
             return get_maintenance_keyboard()
+        elif action == "permissions":
+            from keyboards import get_permissions_management_keyboard
+            return get_permissions_management_keyboard()
+        elif action == "journal_filter":
+            from keyboards import get_journal_filters_keyboard
+            return get_journal_filters_keyboard()
         elif action == "back":
             return get_admin_keyboard()
         else:
@@ -484,9 +490,84 @@ class AdminPanel:
                     message = "📥 *Экспорт журнала*\n\nВыберите формат и период:"
                     keyboard = await self.get_keyboard_for_action("export")
                     return message, keyboard
+                elif subaction == "filters":
+                    message = "� *Фильтры журнала*\n\nВыберите тип фильтра:"
+                    from keyboards import get_journal_filters_keyboard
+                    keyboard = get_journal_filters_keyboard()
+                    return message, keyboard
+                elif subaction == "stats":
+                    stats = await self.db.get_events_stats()
+                    message = f"📊 *Статистика журнала*\n\n"
+                    message += f"📝 Всего событий: {stats.get('total_events', 0)}\n\n"
+                    message += "📋 *По типам действий:*\n"
+                    for action_type, count in stats.get('by_action', {}).items():
+                        message += f"• {action_type}: {count}\n"
+                    keyboard = await self.get_keyboard_for_action("journal")
+                    return message, keyboard
                 else:
-                    message = "📖 *Журнал событий*\n\nВыберите действие:"
+                    message = "� *Журнал событий*\n\nВыберите действие:"
                 keyboard = await self.get_keyboard_for_action("journal")
+                
+            elif action == "journal_filter":
+                from keyboards import get_journal_filters_keyboard
+                if subaction == "today":
+                    filters = {'period': 'today'}
+                    events = await self.db.get_events(limit=50, filters=filters)
+                    message = f"📅 *События за сегодня*\n\n"
+                    if events:
+                        for event in events[:15]:
+                            message += f"🕐 {event['timestamp']}\n"
+                            message += f"👤 {event['user_name']}\n"
+                            message += f"📝 {event['action']}\n\n"
+                        if len(events) > 15:
+                            message += f"... и еще {len(events) - 15} записей"
+                    else:
+                        message += "Нет событий за сегодня"
+                    keyboard = get_journal_filters_keyboard()
+                    return message, keyboard
+                elif subaction == "week":
+                    filters = {'period': 'week'}
+                    events = await self.db.get_events(limit=50, filters=filters)
+                    message = f"📅 *События за неделю*\n\n"
+                    if events:
+                        for event in events[:15]:
+                            message += f"🕐 {event['timestamp']}\n"
+                            message += f"👤 {event['user_name']}\n"
+                            message += f"📝 {event['action']}\n\n"
+                        if len(events) > 15:
+                            message += f"... и еще {len(events) - 15} записей"
+                    else:
+                        message += "Нет событий за неделю"
+                    keyboard = get_journal_filters_keyboard()
+                    return message, keyboard
+                elif subaction == "month":
+                    filters = {'period': 'month'}
+                    events = await self.db.get_events(limit=50, filters=filters)
+                    message = f"📅 *События за месяц*\n\n"
+                    if events:
+                        for event in events[:15]:
+                            message += f"🕐 {event['timestamp']}\n"
+                            message += f"👤 {event['user_name']}\n"
+                            message += f"📝 {event['action']}\n\n"
+                        if len(events) > 15:
+                            message += f"... и еще {len(events) - 15} записей"
+                    else:
+                        message += "Нет событий за месяц"
+                    keyboard = get_journal_filters_keyboard()
+                    return message, keyboard
+                elif subaction == "stats":
+                    stats = await self.db.get_events_stats()
+                    message = f"📊 *Общая статистика журнала*\n\n"
+                    message += f"📝 Всего событий: {stats.get('total_events', 0)}\n\n"
+                    message += "📋 *Топ действий:*\n"
+                    for action_type, count in list(stats.get('by_action', {}).items())[:10]:
+                        message += f"• {action_type}: {count}\n"
+                    keyboard = get_journal_filters_keyboard()
+                    return message, keyboard
+                else:
+                    message = "🔍 *Фильтры журнала*\n\nВыберите тип фильтра:"
+                    keyboard = get_journal_filters_keyboard()
+                    return message, keyboard
                 
             elif action == "settings":
                 message = "⚙️ *Настройки*\n\nВыберите раздел:"
@@ -511,9 +592,91 @@ class AdminPanel:
                     for admin in admins:
                         status = "👑 Главный" if admin['is_main'] else "👤 Админ"
                         message += f"• {admin['name']} ({status})\n"
+                elif subaction == "permissions":
+                    message = "� *Управление правами доступа*\n\nВыберите действие:"
+                    from keyboards import get_permissions_management_keyboard
+                    keyboard = get_permissions_management_keyboard()
+                    return message, keyboard
+                elif subaction == "configure_commander":
+                    message = "⚙️ *Настройка командира*\n\n"
+                    message += "Введите Telegram ID командира для настройки прав доступа."
+                    keyboard = await self.get_keyboard_for_action("back")
+                    return message, keyboard
                 else:
-                    message = "👑 *Управление админами*\n\nВыберите действие:"
+                    message = "�� *Управление админами*\n\nВыберите действие:"
                 keyboard = await self.get_keyboard_for_action("admins")
+                
+            elif action == "permissions":
+                from keyboards import get_permissions_management_keyboard, get_commander_permissions_keyboard
+                if subaction == "configure":
+                    message = "👑 *Настройка прав командира*\n\n"
+                    message += "Для настройки прав доступа командира отправьте его Telegram ID."
+                    keyboard = get_permissions_management_keyboard()
+                    return message, keyboard
+                elif subaction == "list_commanders":
+                    # Получаем список всех пользователей с правами командира
+                    all_users = await self.db.get_all_users()
+                    commanders = [user for user in all_users if await self.is_admin(user['telegram_id'])]
+                    
+                    message = "📋 *Список командиров с правами:*\n\n"
+                    if commanders:
+                        for commander in commanders:
+                            permissions = await self.db.get_commander_permissions(commander['telegram_id'])
+                            rights_count = sum(1 for k, v in permissions.items() if k.startswith('can_') and v) if permissions else 0
+                            message += f"👤 {commander['name']}\n"
+                            message += f"   🔑 Прав: {rights_count}/8\n"
+                            if commander.get('username'):
+                                message += f"   🔗 @{commander['username']}\n"
+                            message += f"   📱 ID: {commander['telegram_id']}\n\n"
+                    else:
+                        message += "Нет командиров с настроенными правами"
+                    
+                    keyboard = get_permissions_management_keyboard()
+                    return message, keyboard
+                elif subaction == "bulk_configure":
+                    message = "🔧 *Массовые настройки прав*\n\n"
+                    message += "Функция в разработке. Пока настраивайте права индивидуально."
+                    keyboard = get_permissions_management_keyboard()
+                    return message, keyboard
+                elif subaction == "report":
+                    # Создаем отчет по правам
+                    all_users = await self.db.get_all_users()
+                    commanders = [user for user in all_users if await self.is_admin(user['telegram_id'])]
+                    
+                    message = "📊 *Отчет по правам доступа*\n\n"
+                    message += f"👥 Всего командиров: {len(commanders)}\n\n"
+                    
+                    if commanders:
+                        # Статистика по правам
+                        rights_stats = {
+                            'can_view_personnel': 0,
+                            'can_manage_personnel': 0,
+                            'can_export_data': 0,
+                            'can_view_journal': 0,
+                            'can_clear_journal': 0,
+                            'can_manage_notifications': 0,
+                            'can_view_stats': 0,
+                            'can_force_operations': 0
+                        }
+                        
+                        for commander in commanders:
+                            permissions = await self.db.get_commander_permissions(commander['telegram_id'])
+                            if permissions:
+                                for right in rights_stats:
+                                    if permissions.get(right, False):
+                                        rights_stats[right] += 1
+                        
+                        message += "📋 *Статистика прав:*\n"
+                        for right, count in rights_stats.items():
+                            right_name = right.replace('can_', '').replace('_', ' ').title()
+                            message += f"• {right_name}: {count}/{len(commanders)}\n"
+                    
+                    keyboard = get_permissions_management_keyboard()
+                    return message, keyboard
+                else:
+                    message = "🔑 *Управление правами доступа*\n\nВыберите действие:"
+                    keyboard = get_permissions_management_keyboard()
+                    return message, keyboard
                 
             elif action == "danger_zone":
                 if subaction == "mark_all_arrived":
