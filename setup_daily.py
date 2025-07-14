@@ -2,11 +2,14 @@
 """
 🌐 Простая настройка бота для PythonAnywhere (1 Task в сутки)
 Требует только токен бота и Telegram ID администратора
+Автоматически устанавливает все зависимости в виртуальное окружение
 """
 
 import os
 import sys
 import re
+import subprocess
+import platform
 from datetime import datetime
 
 def print_banner():
@@ -16,8 +19,20 @@ def print_banner():
     print("🔄 Работа 24/7 с внутренними перезапусками")
     print("📊 Отчеты админу каждые 6 часов")
     print("🚨 Уведомления об ошибках")
+    print("🐍 Автоустановка зависимостей в venv")
     print("=" * 60)
     print()
+
+def check_python_version():
+    """Проверка версии Python"""
+    version = sys.version_info
+    if version.major == 3 and version.minor >= 8:
+        print(f"✅ Python {version.major}.{version.minor}.{version.micro} - совместим")
+        return True
+    else:
+        print(f"❌ Python {version.major}.{version.minor}.{version.micro} - НЕ совместим")
+        print("⚠️  Требуется Python 3.8+")
+        return False
 
 def detect_pythonanywhere():
     """Определение среды PythonAnywhere"""
@@ -49,6 +64,85 @@ def get_username():
     except:
         return 'username'
 
+def run_command(cmd, description=""):
+    """Выполнение команды с красивым выводом"""
+    if description:
+        print(f"🔄 {description}...")
+    
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+        if result.stdout.strip():
+            print(f"✅ {description} - успешно")
+        return True, result.stdout
+    except subprocess.CalledProcessError as e:
+        print(f"❌ {description} - ошибка:")
+        if e.stdout:
+            print(f"   Вывод: {e.stdout.strip()}")
+        if e.stderr:
+            print(f"   Ошибка: {e.stderr.strip()}")
+        return False, str(e)
+
+def create_virtual_environment():
+    """Создание виртуального окружения"""
+    print("\n🐍 Работа с виртуальным окружением...")
+    
+    venv_path = "venv_bot"
+    
+    # Проверяем, существует ли уже
+    if os.path.exists(venv_path):
+        print(f"⚠️ Виртуальное окружение {venv_path} уже существует")
+        response = input("Пересоздать? (y/N): ").lower()
+        if response == 'y':
+            print("🗑️ Удаляем старое окружение...")
+            run_command(f"rm -rf {venv_path}", "Удаление старого окружения")
+        else:
+            print("✅ Используем существующее окружение")
+            return True
+    
+    # Создаем новое окружение
+    success, output = run_command(f"python3 -m venv {venv_path}", "Создание виртуального окружения")
+    if not success:
+        print("❌ Не удалось создать виртуальное окружение")
+        return False
+    
+    print("✅ Виртуальное окружение создано")
+    return True
+
+def install_requirements():
+    """Установка зависимостей"""
+    print("\n📦 Установка зависимостей...")
+    
+    if not os.path.exists("requirements.txt"):
+        print("❌ Файл requirements.txt не найден!")
+        return False
+    
+    # Обновляем pip
+    pip_cmd = "venv_bot/bin/pip"
+    success, _ = run_command(f"{pip_cmd} install --upgrade pip", "Обновление pip")
+    if not success:
+        print("⚠️ Не удалось обновить pip, но продолжаем...")
+    
+    # Устанавливаем зависимости
+    success, output = run_command(f"{pip_cmd} install -r requirements.txt", "Установка зависимостей из requirements.txt")
+    if not success:
+        print("❌ Не удалось установить зависимости")
+        return False
+    
+    print("✅ Все зависимости установлены")
+    
+    # Проверяем ключевые пакеты
+    print("\n🔍 Проверка установленных пакетов...")
+    key_packages = ['aiogram', 'python-dotenv', 'aiosqlite']
+    
+    for package in key_packages:
+        success, _ = run_command(f"{pip_cmd} show {package}", f"Проверка {package}")
+        if success:
+            print(f"   ✅ {package}")
+        else:
+            print(f"   ❌ {package} - не установлен")
+    
+    return True
+
 def get_input(prompt, validator=None, description=""):
     """Простой ввод с валидацией"""
     if description:
@@ -75,6 +169,15 @@ def validate_telegram_id(user_id):
         return int(user_id) > 0
     except:
         return False
+
+def create_directories():
+    """Создание необходимых директорий"""
+    directories = ['data', 'logs', 'exports', 'config']
+    
+    print("\n📁 Создание директорий...")
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
+        print(f"   ✅ {directory}/")
 
 def create_env_file(token, admin_id):
     """Создание .env файла"""
@@ -138,7 +241,8 @@ if [ -f "venv_bot/bin/activate" ]; then
     source venv_bot/bin/activate
     echo "✅ Виртуальное окружение активировано"
 else
-    echo "⚠️ Виртуальное окружение не найдено, используем системный Python"
+    echo "❌ Виртуальное окружение не найдено!"
+    exit 1
 fi
 
 # Проверяем .env файл
@@ -147,8 +251,8 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# Создаем директории
-mkdir -p logs data exports
+# Создаем директории если их нет
+mkdir -p logs data exports config
 
 # Запускаем бот на целый день
 echo "🚀 Запуск дневного цикла бота..."
@@ -169,12 +273,35 @@ echo "🔍 Статус: ps aux | grep pa_daily_runner"
     
     return f"/home/{username}/telegram_bot/start_daily.sh"
 
+def test_bot_configuration():
+    """Тестирование конфигурации бота"""
+    print("\n🧪 Тестирование конфигурации...")
+    
+    # Тестируем импорт config
+    try:
+        python_cmd = "venv_bot/bin/python"
+        test_cmd = f"{python_cmd} -c 'from config import Config; c = Config(); print(f\"BOT_TOKEN: {{c.BOT_TOKEN[:10]}}...\"); print(f\"ADMIN_IDS: {{c.ADMIN_IDS}}\")"
+        success, output = run_command(test_cmd, "Тестирование config.py")
+        
+        if success and output.strip():
+            print("✅ Конфигурация загружается корректно")
+            print(f"   {output.strip()}")
+            return True
+        else:
+            print("❌ Ошибка в конфигурации")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Ошибка тестирования: {e}")
+        return False
+
 def create_installation_guide(username, script_path):
     """Создание руководства по установке"""
     
     guide_content = f"""# 🚀 Руководство по установке Telegram Bot (1 Task в сутки)
 
 ## ✅ Что настроено:
+- 🐍 Виртуальное окружение `venv_bot` с зависимостями
 - 🤖 Конфигурация для работы 24/7
 - 🔄 Внутренние перезапуски каждые 55 минут  
 - 📊 Отчеты о здоровье каждые 6 часов
@@ -218,6 +345,9 @@ top -p $(pgrep -f pa_daily_runner)
 
 # Ручной запуск для тестирования
 ./start_daily.sh
+
+# Активация venv для отладки
+source venv_bot/bin/activate
 ```
 
 ## 🔧 Управление:
@@ -226,21 +356,33 @@ top -p $(pgrep -f pa_daily_runner)
 # Остановить бота
 pkill -f pa_daily_runner
 
-# Запустить вручную
+# Запустить вручную в venv
+source venv_bot/bin/activate
 python3 pa_daily_runner.py
 
 # Запустить через скрипт
 ./start_daily.sh
+
+# Проверить установленные пакеты
+venv_bot/bin/pip list
 ```
 
 ## 📈 Как это работает:
 
 1. **Scheduled Task** запускается 1 раз в сутки
-2. **Daily Runner** работает ~24 часа (23 ч 50 мин)
-3. **Внутренние сессии** по 55 минут с перезапусками
-4. **Автоматическое завершение** за 10 минут до следующего Task
-5. **Отчеты админу** каждые 6 часов
-6. **Мгновенные уведомления** при ошибках
+2. **start_daily.sh** активирует виртуальное окружение
+3. **Daily Runner** работает ~24 часа (23 ч 50 мин)
+4. **Внутренние сессии** по 55 минут с перезапусками
+5. **Автоматическое завершение** за 10 минут до следующего Task
+6. **Отчеты админу** каждые 6 часов
+7. **Мгновенные уведомления** при ошибках
+
+## 🐍 Виртуальное окружение:
+
+- ✅ **venv_bot/** - изолированная среда Python
+- ✅ **Все зависимости** установлены из requirements.txt
+- ✅ **Автоматическая активация** в start_daily.sh
+- ✅ **Независимость** от системных пакетов
 
 ## 🚨 Особенности PythonAnywhere Free:
 
@@ -248,6 +390,7 @@ python3 pa_daily_runner.py
 - ✅ **Работа 24/7** - с внутренними перезапусками
 - ✅ **Автоматическое управление** ресурсами
 - ✅ **Безопасное завершение** перед следующим запуском
+- ✅ **Изолированные зависимости** в venv
 
 ## 📱 Что получает админ:
 
@@ -272,15 +415,48 @@ python3 pa_daily_runner.py
 
 ## 🆘 Если что-то не работает:
 
-1. Проверьте `.env` файл
-2. Убедитесь, что виртуальное окружение создано
-3. Проверьте логи: `tail -f logs/pa_daily.log`
-4. Убедитесь, что Scheduled Task настроена правильно
-5. Попробуйте ручной запуск: `./start_daily.sh`
+1. **Проверьте виртуальное окружение:**
+   ```bash
+   ls -la venv_bot/
+   source venv_bot/bin/activate
+   python --version
+   ```
+
+2. **Проверьте зависимости:**
+   ```bash
+   venv_bot/bin/pip list
+   venv_bot/bin/pip show aiogram
+   ```
+
+3. **Проверьте конфигурацию:**
+   ```bash
+   source venv_bot/bin/activate
+   python -c "from config import Config; print('OK')"
+   ```
+
+4. **Проверьте логи:**
+   ```bash
+   tail -f logs/pa_daily.log
+   tail -f logs/daily_start.log
+   ```
+
+5. **Переустановите зависимости:**
+   ```bash
+   source venv_bot/bin/activate
+   pip install -r requirements.txt --force-reinstall
+   ```
+
+## 🔄 Переустановка:
+
+Если нужно переустановить все с нуля:
+```bash
+rm -rf venv_bot .env
+python3 setup_daily.py
+```
 
 **Время создания:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
 **Пользователь:** {username}
-**Режим:** 1 Scheduled Task в сутки
+**Режим:** 1 Scheduled Task в сутки с виртуальным окружением
 """
     
     with open('DAILY_SETUP_GUIDE.md', 'w', encoding='utf-8') as f:
@@ -291,6 +467,11 @@ python3 pa_daily_runner.py
 def main():
     """Главная функция настройки"""
     print_banner()
+    
+    # Проверяем Python
+    if not check_python_version():
+        print("❌ Несовместимая версия Python. Установка прервана.")
+        return
     
     # Проверяем среду
     is_pa = detect_pythonanywhere()
@@ -317,26 +498,42 @@ def main():
         "Узнайте свой ID у @userinfobot в Telegram"
     )
     
-    print("\n🔧 Создание конфигурации...")
+    print("\n🔧 Автоматическая установка и настройка...")
+    
+    # Создаем виртуальное окружение
+    if not create_virtual_environment():
+        print("❌ Не удалось создать виртуальное окружение")
+        return
+    
+    # Устанавливаем зависимости
+    if not install_requirements():
+        print("❌ Не удалось установить зависимости")
+        return
     
     # Создаем директории
-    for directory in ['data', 'logs', 'exports', 'config']:
-        os.makedirs(directory, exist_ok=True)
+    create_directories()
     
-    # Создаем файлы
+    # Создаем файлы конфигурации
     create_env_file(token, admin_id)
+    
+    # Тестируем конфигурацию
+    if not test_bot_configuration():
+        print("⚠️ Конфигурация может работать некорректно")
+    
+    # Создаем скрипты
     script_path = create_daily_start_script(username)
     create_installation_guide(username, script_path)
     
     print("\n" + "=" * 60)
-    print("🎉 НАСТРОЙКА ЗАВЕРШЕНА!")
+    print("🎉 УСТАНОВКА ЗАВЕРШЕНА!")
     print("=" * 60)
     print()
-    print("✅ Созданы файлы:")
+    print("✅ Что установлено:")
+    print("   🐍 venv_bot/ - виртуальное окружение с зависимостями")
     print("   📄 .env - конфигурация")
-    print("   🤖 pa_daily_runner.py - дневной раннер")
     print("   📜 start_daily.sh - скрипт запуска")
     print("   📚 DAILY_SETUP_GUIDE.md - руководство")
+    print("   📁 data/, logs/, exports/, config/ - директории")
     print()
     print("🚀 Следующие шаги:")
     print("   1. Настройте Scheduled Task в PythonAnywhere")
@@ -344,9 +541,14 @@ def main():
     print(f"      {script_path}")
     print("   3. Расписание: 1 раз в сутки (любое время)")
     print()
+    print("🧪 Быстрый тест:")
+    print("   ./start_daily.sh")
+    print("   tail -f logs/pa_daily.log")
+    print()
     print("📖 Подробные инструкции в DAILY_SETUP_GUIDE.md")
     print()
-    print("🎯 Ваш бот будет работать 24/7 с:")
+    print("🎯 Ваш бот готов к работе 24/7 с:")
+    print("   🐍 Изолированными зависимостями в venv")
     print("   🔄 Внутренними перезапусками каждые 55 минут")
     print("   📊 Отчетами админу каждые 6 часов")
     print("   🚨 Уведомлениями об ошибках")
@@ -357,6 +559,8 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n🛑 Настройка прервана пользователем")
+        print("\n🛑 Установка прервана пользователем")
     except Exception as e:
-        print(f"\n❌ Ошибка настройки: {e}")
+        print(f"\n❌ Ошибка установки: {e}")
+        import traceback
+        traceback.print_exc()
