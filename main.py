@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
 Telegram Bot для отслеживания прибытия/убытия персонала
-Главный файл для запуска бота на aiogram
+Главный файл для запуска бота на aiogram 3.x
 """
 
 import asyncio
 import logging
 import os
 from datetime import datetime
-from aiogram import Bot, Dispatcher, types, executor
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ParseMode
-from aiogram.utils.exceptions import TelegramAPIError
+from aiogram import Bot, Dispatcher, types
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramAPIError
 import aioschedule
 import threading
 import time
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 config = Config()
 bot = Bot(token=config.BOT_TOKEN)
 storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
+dp = Dispatcher(storage=storage)
 db = Database()
 notification_system = NotificationSystem(bot, db)
 admin_panel = AdminPanel(db, notification_system)
@@ -58,7 +59,18 @@ class UserStates(StatesGroup):
 bot_running = True
 schedule_thread = None
 
-async def on_startup(dp):
+def run_scheduler():
+    """Запуск планировщика уведомлений"""
+    global bot_running
+    while bot_running:
+        try:
+            asyncio.run(aioschedule.run_pending())
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"Ошибка планировщика: {e}")
+            time.sleep(5)
+
+async def on_startup():
     """Инициализация при запуске бота"""
     logger.info("🚀 Бот запускается...")
     
@@ -88,7 +100,7 @@ async def on_startup(dp):
         logger.error(f"❌ Ошибка запуска бота: {e}")
         raise
 
-async def on_shutdown(dp):
+async def on_shutdown():
     """Очистка при остановке бота"""
     logger.info("🛑 Бот останавливается...")
     global bot_running
@@ -96,106 +108,79 @@ async def on_shutdown(dp):
     
     try:
         # Закрытие соединений
-        await bot.close()
+        await bot.session.close()
         await storage.close()
-        await db.close()
         
-        logger.info("✅ Бот остановлен")
+        logger.info("✅ Бот успешно остановлен")
         
     except Exception as e:
         logger.error(f"❌ Ошибка при остановке бота: {e}")
 
-def run_scheduler():
-    """Запуск планировщика в отдельном потоке"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # Настройка расписания
-    aioschedule.every().day.at("19:00").do(lambda: loop.create_task(send_daily_summary()))
-    aioschedule.every().day.at("20:30").do(lambda: loop.create_task(send_reminders()))
-    
-    while bot_running:
-        aioschedule.run_pending()
-        time.sleep(60)  # Проверка каждую минуту
+# Обработчики команд
+from aiogram.filters import Command
 
-async def send_daily_summary():
-    """Отправка ежедневной сводки в 19:00"""
-    try:
-        logger.info("📊 Отправка ежедневной сводки...")
-        await notification_system.send_daily_summary()
-    except Exception as e:
-        logger.error(f"❌ Ошибка отправки ежедневной сводки: {e}")
-
-async def send_reminders():
-    """Отправка напоминаний в 20:30"""
-    try:
-        logger.info("🔔 Отправка напоминаний...")
-        await notification_system.send_reminders()
-    except Exception as e:
-        logger.error(f"❌ Ошибка отправки напоминаний: {e}")
-
-@dp.message_handler(commands=['start'])
+@dp.message(Command("start"))
 async def start_command(message: types.Message):
     """Обработчик команды /start"""
     user_id = message.from_user.id
-    user_name = message.from_user.first_name
+    username = message.from_user.username or "Неизвестный"
     
-    # Удаляем сообщение с командой для чистоты чата
-    try:
-        await message.delete()
-    except TelegramAPIError:
-        pass  # Игнорируем ошибки удаления
+    logger.info(f"👋 Пользователь {username} ({user_id}) запустил бота")
     
-    # Проверяем, является ли пользователь админом
-    is_admin = await admin_panel.is_admin(user_id)
+    # Проверяем, зарегистрирован ли пользователь
+    user_info = await db.get_user_info(user_id)
     
-    if is_admin:
-        # Показываем админ-панель
+    if user_info:
+        # Пользователь уже зарегистрирован
         await message.answer(
-            f"🏠 *Главное меню админ-панели*\n\n"
-            f"Добро пожаловать, {user_name}!\n"
-            f"Выберите нужный раздел:",
-            reply_markup=get_admin_keyboard(),
+            f"👋 Добро пожаловать обратно, {user_info['full_name']}!\n"
+            f"📍 Ваш статус: {user_info['status']}\n"
+            f"📍 Местоположение: {user_info['location']}\n\n"
+            f"🎯 Выберите действие:",
+            reply_markup=get_main_keyboard(),
             parse_mode=ParseMode.MARKDOWN
         )
     else:
-        # Показываем обычное меню
+        # Новый пользователь
         await message.answer(
-            f"👋 *Добро пожаловать в систему учета личного состава!*\n\n"
-            f"Привет, {user_name}!\n"
-            f"Выберите действие:",
+            f"👋 Добро пожаловать в бот учета персонала!\n\n"
+            f"🎯 Для начала работы нужно пройти регистрацию.\n"
+            f"📝 Введите ваше полное имя (Фамилия Имя Отчество):",
             reply_markup=get_main_keyboard(),
             parse_mode=ParseMode.MARKDOWN
         )
 
-@dp.message_handler(commands=['help'])
+@dp.message(Command("help"))
 async def help_command(message: types.Message):
     """Обработчик команды /help"""
     help_text = (
-        "📖 *Справка по командам:*\n\n"
-        "🔹 `/start` - Главное меню\n"
-        "🔹 `/help` - Эта справка\n"
-        "🔹 `/status` - Статус системы\n\n"
-        "💡 *Для админов:*\n"
-        "🔹 `/admin` - Админ-панель\n"
-        "🔹 `/export` - Экспорт данных\n"
-        "🔹 `/backup` - Резервная копия"
+        "📚 *Справка по боту учета персонала*\n\n"
+        "🎯 *Основные команды:*\n"
+        "• /start - Запуск бота\n"
+        "• /help - Справка\n"
+        "• /status - Текущий статус системы\n"
+        "• /admin - Панель администратора\n\n"
+        "🔧 *Функции:*\n"
+        "• ✅ Отметка прибытия/убытия\n"
+        "• 📍 Указание местоположения\n"
+        "• 📊 Просмотр статистики\n"
+        "• 🔔 Автоматические уведомления\n"
+        "• 🎛️ Админ-панель (для администраторов)\n\n"
+        "❓ *Нужна помощь?*\n"
+        "Обратитесь к администратору системы."
     )
     
     await message.answer(help_text, parse_mode=ParseMode.MARKDOWN)
 
-@dp.message_handler(commands=['status'])
+@dp.message(Command("status"))
 async def status_command(message: types.Message):
     """Обработчик команды /status"""
     try:
-        # Получаем статистику
-        total_users = await db.get_total_users()
         present_users = await db.get_present_users()
         absent_users = await db.get_absent_users()
         
         status_text = (
-            "📊 *Статус системы:*\n\n"
-            f"👥 Всего бойцов: {total_users}\n"
+            f"📊 *Текущий статус системы*\n\n"
             f"✅ Присутствуют: {present_users}\n"
             f"❌ Отсутствуют: {absent_users}\n"
             f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
@@ -208,7 +193,7 @@ async def status_command(message: types.Message):
         logger.error(f"Ошибка получения статуса: {e}")
         await message.answer("❌ Ошибка получения статуса системы")
 
-@dp.message_handler(commands=['admin'])
+@dp.message(Command("admin"))
 async def admin_command(message: types.Message):
     """Обработчик команды /admin"""
     user_id = message.from_user.id
@@ -223,29 +208,31 @@ async def admin_command(message: types.Message):
     else:
         await message.answer("❌ У вас нет прав администратора")
 
-@dp.errors_handler()
-async def errors_handler(update, exception):
+@dp.error()
+async def error_handler(event):
     """Обработчик ошибок"""
-    logger.error(f"Ошибка при обработке {update}: {exception}")
+    logger.error(f"Ошибка: {event.exception}")
     
     try:
-        if update.message:
-            await update.message.answer(
+        if event.update.message:
+            await event.update.message.answer(
                 "❌ Произошла ошибка при обработке запроса. Попробуйте позже."
             )
     except:
         pass
 
-if __name__ == '__main__':
+async def main():
+    """Основная функция запуска бота"""
     try:
-        logger.info("🚀 Запуск бота...")
-        executor.start_polling(
-            dp,
-            on_startup=on_startup,
-            on_shutdown=on_shutdown,
-            skip_updates=True
-        )
+        await on_startup()
+        logger.info("🚀 Начинаю polling...")
+        await dp.start_polling(bot, skip_updates=True)
     except KeyboardInterrupt:
         logger.info("🛑 Бот остановлен пользователем")
     except Exception as e:
         logger.error(f"💥 Критическая ошибка: {e}")
+    finally:
+        await on_shutdown()
+
+if __name__ == '__main__':
+    asyncio.run(main())

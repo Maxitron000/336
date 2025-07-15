@@ -5,9 +5,9 @@
 import logging
 from datetime import datetime
 from aiogram import Dispatcher, types
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.types import ParseMode
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.enums import ParseMode
 from database import Database
 from admin import AdminPanel
 from notifications import NotificationSystem
@@ -39,19 +39,10 @@ class UserStates(StatesGroup):
     waiting_for_filter_input = State()
 
 def register_handlers(dp: Dispatcher, admin_panel: AdminPanel, notification_system: NotificationSystem):
-    """Регистрация всех обработчиков"""
-    
-    # Обработчики команд
-    dp.register_message_handler(start_command, commands=['start'])
-    dp.register_message_handler(help_command, commands=['help'])
-    dp.register_message_handler(status_command, commands=['status'])
-    dp.register_message_handler(admin_command, commands=['admin'])
-    
-    # Обработчики текстовых сообщений (только для регистрации и кастомных локаций)
-    dp.register_message_handler(handle_text_message, content_types=['text'])
-    
-    # Обработчики callback-запросов
-    dp.register_callback_query_handler(handle_callback_query, lambda c: True)
+    """Регистрация всех обработчиков - заглушка для совместимости"""
+    # В aiogram 3.x обработчики регистрируются декораторами в main.py
+    # Эта функция оставлена для совместимости
+    pass
 
 async def start_command(message: types.Message, state: FSMContext):
     """Обработчик команды /start"""
