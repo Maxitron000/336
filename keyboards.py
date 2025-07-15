@@ -287,7 +287,6 @@ def get_maintenance_keyboard():
         ],
         [
             InlineKeyboardButton("📋 Список бэкапов", callback_data=admin_cb(action="maintenance", subaction="list_backups")),
-            InlineKeyboardButton("🐍 PythonAnywhere", callback_data=admin_cb(action="maintenance", subaction="pythonanywhere_info"))
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb(action="back", subaction=""))]
     ]

@@ -26,7 +26,11 @@ from admin import AdminPanel
 from notifications import NotificationSystem
 from database import Database
 from config import Config
-from pythonanywhere_support import PythonAnywhereSupport
+from keep_alive import keep_alive
+
+# Создание необходимых папок для Replit
+for folder in ["data", "logs", "exports"]:
+    os.makedirs(folder, exist_ok=True)
 
 # Настройка логирования
 logging.basicConfig(
@@ -47,7 +51,6 @@ dp = Dispatcher(storage=storage)
 db = Database()
 notification_system = NotificationSystem(bot, db)
 admin_panel = AdminPanel(db, notification_system)
-pythonanywhere_support = PythonAnywhereSupport(db, notification_system)
 
 # Состояния FSM
 class UserStates(StatesGroup):
@@ -82,9 +85,6 @@ async def on_startup():
         
         # Инициализация базы данных
         await db.init()
-        
-        # Настройка PythonAnywhere
-        await pythonanywhere_support.setup_pythonanywhere()
         
         # Регистрация обработчиков
         register_handlers(dp, admin_panel, notification_system)
@@ -244,4 +244,26 @@ async def main():
         await on_shutdown()
 
 if __name__ == '__main__':
+    keep_alive()
     asyncio.run(main())
+
+# Healthcheck-отчёт админу каждые 6 часов
+import asyncio
+from aiogram import Bot
+from dotenv import load_dotenv
+load_dotenv()
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
+bot = Bot(token=BOT_TOKEN)
+
+async def healthcheck():
+    while True:
+        try:
+            await bot.send_message(ADMIN_ID, "Healthcheck: бот жив!")
+        except Exception as e:
+            print(f"Healthcheck error: {e}")
+        await asyncio.sleep(6 * 60 * 60)  # 6 часов
+
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.create_task(healthcheck())
