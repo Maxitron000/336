@@ -16,7 +16,12 @@ def run_command(command, description=""):
         print(f"🔧 {description}")
     
     try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        # Для команд с активацией виртуального окружения используем bash
+        if "venv_bot_310/bin/activate" in command:
+            result = subprocess.run(command, shell=True, capture_output=True, text=True, executable="/bin/bash")
+        else:
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            
         if result.returncode == 0:
             print(f"✅ Успешно: {description}")
             return True
@@ -39,11 +44,11 @@ def setup_python310_environment():
         return False
     
     # Активируем окружение и обновляем pip
-    if not run_command("source venv_bot_310/bin/activate && pip install --upgrade pip", "Обновление pip"):
+    if not run_command(". venv_bot_310/bin/activate && pip install --upgrade pip", "Обновление pip"):
         return False
     
     # Устанавливаем зависимости
-    if not run_command("source venv_bot_310/bin/activate && pip install -r requirements.txt", "Установка зависимостей"):
+    if not run_command(". venv_bot_310/bin/activate && pip install -r requirements.txt", "Установка зависимостей"):
         print("❌ Не удалось установить зависимости")
         return False
     
@@ -58,7 +63,7 @@ def setup_database():
     data_dir.mkdir(exist_ok=True)
     
     # Запускаем создание базы данных
-    if not run_command("source venv_bot_310/bin/activate && python create_database.py", "Создание базы данных"):
+    if not run_command(". venv_bot_310/bin/activate && python create_database.py", "Создание базы данных"):
         print("❌ Не удалось создать базу данных")
         return False
     
@@ -75,7 +80,7 @@ def create_startup_script():
 cd /home/yourusername/mysite
 
 # Активируем виртуальное окружение Python 3.10
-source venv_bot_310/bin/activate
+. venv_bot_310/bin/activate
 
 # Проверяем наличие .env файла
 if [ ! -f .env ]; then
