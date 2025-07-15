@@ -229,8 +229,17 @@ async def main():
         await dp.start_polling(bot, skip_updates=True)
     except KeyboardInterrupt:
         logger.info("🛑 Бот остановлен пользователем")
+    except FileNotFoundError as e:
+        logger.error(f"❌ Ошибка конфигурации: {e}")
+        print(f"\n{e}")
+    except ValueError as e:
+        logger.error(f"❌ Ошибка настройки: {e}")
+        print(f"\n{e}")
     except Exception as e:
         logger.error(f"💥 Критическая ошибка: {e}")
+        print(f"💥 Критическая ошибка: {e}")
+        print("🔧 Проверьте настройки в файле .env")
+        print("📖 Инструкция по настройке: КАК_ЗАПУСТИТЬ_БОТА.md")
     finally:
         await on_shutdown()
 
