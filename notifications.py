@@ -9,7 +9,7 @@ import json
 from datetime import datetime, date, time
 from typing import List, Dict, Optional
 from aiogram import Bot
-from aiogram.types import ParseMode
+from aiogram.enums import ParseMode
 from database import Database
 from config import Config
 

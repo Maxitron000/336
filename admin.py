@@ -7,7 +7,8 @@ import asyncio
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional
 from aiogram import Bot
-from aiogram.types import ParseMode, InlineKeyboardMarkup
+from aiogram.enums import ParseMode
+from aiogram.types import InlineKeyboardMarkup
 from database import Database
 from notifications import NotificationSystem
 from config import Config
