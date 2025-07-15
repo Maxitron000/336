@@ -112,3 +112,22 @@ cat monitoring/PYTHONANYWHERE_SETUP.md
 5. Готово! Бот работает с полным мониторингом
 
 **Теперь ваш бот будет работать стабильно и надежно!**
+
+---
+
+## 🚀 Запуск на Replit (24/7)
+
+1. **Создайте новый Repl на https://replit.com/**
+2. Загрузите все файлы проекта (или клонируйте репозиторий)
+3. В разделе Secrets (Environment Variables) добавьте:
+   - `BOT_TOKEN` — токен вашего Telegram-бота
+   - `ADMIN_ID` — ваш Telegram user id
+4. Убедитесь, что в requirements.txt есть `flask`
+5. В файле main.py импортируйте и вызовите `keep_alive()` перед запуском бота
+6. Нажмите Run — бот запустится и будет работать 24/7, если настроить внешний мониторинг
+7. Для anti-sleep используйте UptimeRobot:
+   - Зарегистрируйтесь на https://uptimerobot.com/
+   - Создайте HTTP(s) монитор с URL вашего Replit (например, https://your-repl-username.your-repl-name.repl.co/)
+   - Монитор будет “будить” ваш бот каждые 5 минут
+
+---

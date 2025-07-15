@@ -15,7 +15,6 @@ from config import Config
 from monitoring import BotHealthMonitor
 from backup import BackupSystem
 from auto_restart import AutoRestartSystem
-from pythonanywhere_support import PythonAnywhereSupport
 from keyboards import (
     get_admin_keyboard, get_personnel_keyboard, get_journal_keyboard,
     get_settings_keyboard, get_notifications_settings_keyboard,
@@ -38,7 +37,6 @@ class AdminPanel:
         self.health_monitor = BotHealthMonitor(db)
         self.backup_system = BackupSystem()
         self.auto_restart = AutoRestartSystem()
-        self.pythonanywhere_support = PythonAnywhereSupport(db, notification_system)
     
     async def is_admin(self, user_id: int) -> bool:
         """Проверка является ли пользователь админом"""
@@ -492,7 +490,7 @@ class AdminPanel:
                     keyboard = await self.get_keyboard_for_action("export")
                     return message, keyboard
                 elif subaction == "filters":
-                    message = "� *Фильтры журнала*\n\nВыберите тип фильтра:"
+                    message = "🔍 *Фильтры журнала*\n\nВыберите тип фильтра:"
                     from keyboards import get_journal_filters_keyboard
                     keyboard = get_journal_filters_keyboard()
                     return message, keyboard
@@ -506,7 +504,7 @@ class AdminPanel:
                     keyboard = await self.get_keyboard_for_action("journal")
                     return message, keyboard
                 else:
-                    message = "� *Журнал событий*\n\nВыберите действие:"
+                    message = "📖 *Журнал событий*\n\nВыберите действие:"
                 keyboard = await self.get_keyboard_for_action("journal")
                 
             elif action == "journal_filter":
@@ -594,7 +592,7 @@ class AdminPanel:
                         status = "👑 Главный" if admin['is_main'] else "👤 Админ"
                         message += f"• {admin['name']} ({status})\n"
                 elif subaction == "permissions":
-                    message = "� *Управление правами доступа*\n\nВыберите действие:"
+                    message = "🔑 *Управление правами доступа*\n\nВыберите действие:"
                     from keyboards import get_permissions_management_keyboard
                     keyboard = get_permissions_management_keyboard()
                     return message, keyboard
@@ -604,7 +602,7 @@ class AdminPanel:
                     keyboard = await self.get_keyboard_for_action("back")
                     return message, keyboard
                 else:
-                    message = "�� *Управление админами*\n\nВыберите действие:"
+                    message = "👑 *Управление админами*\n\nВыберите действие:"
                 keyboard = await self.get_keyboard_for_action("admins")
                 
             elif action == "permissions":
@@ -733,8 +731,6 @@ class AdminPanel:
                     message = await self.list_backups()
                 elif subaction == "maintenance_log":
                     message = await self.get_maintenance_log()
-                elif subaction == "pythonanywhere_info":
-                    message = await self.get_pythonanywhere_info()
                 else:
                     message = "🔧 *Техобслуживание*\n\nВыберите тип ТО:"
                 keyboard = await self.get_keyboard_for_action("maintenance")
@@ -1095,14 +1091,4 @@ class AdminPanel:
                 
         except Exception as e:
             logger.error(f"Ошибка восстановления бэкапа: {e}")
-            return f"❌ Ошибка: {str(e)}"
-    
-    async def get_pythonanywhere_info(self) -> str:
-        """Получение информации о PythonAnywhere"""
-        try:
-            info = self.pythonanywhere_support.get_pythonanywhere_info()
-            return self.pythonanywhere_support.format_pythonanywhere_info(info)
-            
-        except Exception as e:
-            logger.error(f"Ошибка получения информации PythonAnywhere: {e}")
             return f"❌ Ошибка: {str(e)}"
