@@ -128,8 +128,8 @@ def main():
     
     while True:
         try:
-            # Перезапуск каждый час
-            time.sleep(3600)  # 1 час
+            # Перезапуск каждые 55 минут
+            time.sleep(3300)  # 55 минут
             restart_bot()
             
         except KeyboardInterrupt:
