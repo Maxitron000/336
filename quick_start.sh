@@ -215,7 +215,8 @@ async def restart_bot():
                 pass
         
         # Запуск нового процесса
-        os.system("cd /home/$(whoami)/$(basename $(pwd)) && source venv_bot/bin/activate && nohup python3 main.py > logs/bot.log 2>&1 &")
+        project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        os.system(f"cd {project_dir} && source venv_bot/bin/activate && nohup python3 main.py > logs/bot.log 2>&1 &")
         
         await send_notification("Бот перезапущен успешно")
         logging.info("Бот перезапущен")
@@ -379,7 +380,8 @@ async def health_check():
         # Если процесс не найден, попытаться перезапустить
         if not process_info:
             logging.warning("Процесс бота не найден, попытка перезапуска...")
-            os.system("python3 monitoring/auto_restart.py")
+            project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            os.system(f"cd {project_dir} && python3 monitoring/auto_restart.py")
         
     except Exception as e:
         error_msg = f"Ошибка проверки здоровья: {e}"
@@ -490,15 +492,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def run_health_check():
     """Запуск проверки здоровья"""
-    os.system("cd /home/$(whoami)/$(basename $(pwd)) && python3 monitoring/health_check.py")
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    os.system(f"cd {project_dir} && python3 monitoring/health_check.py")
 
 def run_auto_restart():
     """Запуск автоперезапуска"""
-    os.system("cd /home/$(whoami)/$(basename $(pwd)) && python3 monitoring/auto_restart.py")
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    os.system(f"cd {project_dir} && python3 monitoring/auto_restart.py")
 
 def run_error_monitor():
     """Запуск мониторинга ошибок"""
-    os.system("cd /home/$(whoami)/$(basename $(pwd)) && python3 monitoring/error_monitor.py")
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    os.system(f"cd {project_dir} && python3 monitoring/error_monitor.py")
 
 def setup_scheduler():
     """Настройка расписания"""
@@ -542,6 +547,8 @@ EOF
    - **Command**: `python3 /home/yourusername/yourproject/monitoring/daily_task.py`
    - **Frequency**: `Daily`
    - **Time**: `00:00` (полночь)
+   
+⚠️ **Важно**: Замените `/home/yourusername/yourproject` на полный путь к вашему проекту!
 
 ## Шаг 2: Проверка работы
 
@@ -706,7 +713,7 @@ show_success() {
     echo
     echo -e "${YELLOW}📋 Для PythonAnywhere Free:${NC}"
     echo "   Настройте Daily Task: monitoring/PYTHONANYWHERE_SETUP.md"
-    echo "   Команда: python3 $(pwd)/monitoring/daily_task.py"
+    echo "   Команда: python3 $PWD/monitoring/daily_task.py"
     echo
     echo -e "${BLUE}📱 Найдите бота в Telegram и отправьте /start${NC}"
     echo -e "${GREEN}============================================${NC}"
