@@ -336,7 +336,7 @@ class Database:
         try:
             async with self.connection.cursor() as cursor:
                 await cursor.execute('''
-                    SELECT u.id, u.name, u.location
+                    SELECT u.id, u.name, u.location, u.telegram_id
                     FROM users u
                     LEFT JOIN attendance a ON u.id = a.user_id AND a.date = ?
                     WHERE a.id IS NULL
@@ -348,7 +348,8 @@ class Database:
                     {
                         'id': row[0],
                         'name': row[1],
-                        'location': row[2]
+                        'location': row[2],
+                        'telegram_id': row[3]
                     }
                     for row in rows
                 ]
