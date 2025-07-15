@@ -603,25 +603,78 @@ EOF
 test_bot() {
     echo -e "${YELLOW}🔍 Тестирование бота...${NC}"
     
+    # Проверяем наличие файла .env
+    if [ ! -f ".env" ]; then
+        echo -e "${RED}❌ Файл .env не найден!${NC}"
+        echo -e "${YELLOW}📋 Создаю файл .env из примера...${NC}"
+        cp .env.example .env
+        echo -e "${RED}⚠️  Настройте BOT_TOKEN и ADMIN_IDS в файле .env${NC}"
+        return 1
+    fi
+    
+    # Проверяем настройки
+    if [ "$BOT_TOKEN" = "YOUR_BOT_TOKEN" ] || [ -z "$BOT_TOKEN" ]; then
+        echo -e "${RED}❌ BOT_TOKEN не настроен!${NC}"
+        echo -e "${YELLOW}📋 Настройте BOT_TOKEN в файле .env${NC}"
+        return 1
+    fi
+    
+    # Создаем виртуальное окружение если не существует
+    if [ ! -d "venv_bot" ]; then
+        echo -e "${YELLOW}📦 Создаю виртуальное окружение...${NC}"
+        python3 -m venv venv_bot
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}❌ Не удалось создать виртуальное окружение${NC}"
+            return 1
+        fi
+    fi
+    
     # Активируем виртуальное окружение
     source venv_bot/bin/activate
     
-    # Тест подключения
+    # Обновляем pip
+    echo -e "${YELLOW}📦 Обновляю pip...${NC}"
+    python3 -m pip install --upgrade pip
+    
+    # Устанавливаем зависимости
+    echo -e "${YELLOW}📦 Устанавливаю зависимости...${NC}"
+    pip install -r requirements.txt
+    
+    # Тест подключения с улучшенной обработкой ошибок
+    echo -e "${YELLOW}🔍 Тестирую подключение к Telegram API...${NC}"
     python3 -c "
 import asyncio
-from aiogram import Bot
 import sys
+import os
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения
+load_dotenv()
 
 async def test():
-    bot = Bot(token='$BOT_TOKEN')
     try:
-        me = await bot.get_me()
-        print('✅ Бот подключен: @' + me.username + ' (' + me.first_name + ')')
-        await bot.session.close()
-        return True
+        from aiogram import Bot
+        
+        bot_token = os.getenv('BOT_TOKEN')
+        if not bot_token or bot_token == 'YOUR_BOT_TOKEN':
+            print('❌ Токен бота не настроен в .env файле')
+            return False
+            
+        bot = Bot(token=bot_token)
+        try:
+            me = await bot.get_me()
+            print('✅ Бот подключен: @' + me.username + ' (' + me.first_name + ')')
+            await bot.session.close()
+            return True
+        except Exception as e:
+            print('❌ Ошибка подключения к Telegram API:', str(e))
+            await bot.session.close()
+            return False
+    except ImportError as e:
+        print('❌ Ошибка импорта:', str(e))
+        return False
     except Exception as e:
-        print('❌ Ошибка:', e)
-        await bot.session.close()
+        print('❌ Неожиданная ошибка:', str(e))
         return False
 
 result = asyncio.run(test())
@@ -630,9 +683,14 @@ sys.exit(0 if result else 1)
     
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✅ Тест прошел успешно${NC}"
+        return 0
     else
-        echo -e "${RED}❌ Тест не прошел. Проверьте токен.${NC}"
-        exit 1
+        echo -e "${RED}❌ Тест не прошел.${NC}"
+        echo -e "${YELLOW}📋 Проверьте:${NC}"
+        echo "   1. Правильность токена в .env файле"
+        echo "   2. Подключение к интернету"
+        echo "   3. Не заблокирован ли бот у @BotFather"
+        return 1
     fi
 }
 

@@ -1,12 +1,16 @@
-# Совместимые зависимости для Python 3.10 и PythonAnywhere
+# Совместимые зависимости для Python 3.13 и aiogram 3.x
 # Основные зависимости для Telegram бота
-aiogram==2.25.1
+aiogram==3.4.1
 python-dotenv==1.0.0
 
-# Зависимости aiogram (совместимые версии для Python 3.10)
-aiohttp==3.8.6
-Babel==2.9.1
+# Зависимости aiogram 3.x
+aiohttp==3.9.1
+aiofiles==23.2.0
+magic-filter==1.0.12
+
+# SSL и сертификаты
 certifi==2023.11.17
+cryptography==41.0.8
 
 # Планировщик задач
 aioschedule==0.5.2
@@ -17,8 +21,8 @@ pytz==2023.3
 # Асинхронная работа с SQLite
 aiosqlite==0.19.0
 
-# Работа с данными (совместимые версии)
-pandas==2.0.3
+# Работа с данными
+pandas==2.1.4
 openpyxl==3.1.2
 xlsxwriter==3.1.9
 
@@ -37,11 +41,15 @@ psutil==5.9.6
 # Планировщик задач
 schedule==1.2.0
 
-# Дополнительные зависимости
-magic-filter==1.0.12
-
 # Мониторинг и логирование
 watchdog==3.0.0
 
 # Генерация PDF отчетов
 reportlab==4.0.4
+
+# Дополнительные зависимости для SSL соединений
+urllib3==2.1.0
+charset-normalizer==3.3.2
+
+# Babel для интернационализации
+Babel==2.14.0
