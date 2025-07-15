@@ -124,31 +124,36 @@ async def start_command(message: types.Message):
     """Обработчик команды /start"""
     user_id = message.from_user.id
     username = message.from_user.username or "Неизвестный"
-    
+
     logger.info(f"👋 Пользователь {username} ({user_id}) запустил бота")
-    
-    # Проверяем, зарегистрирован ли пользователь
-    user_info = await db.get_user_info(user_id)
-    
-    if user_info:
-        # Пользователь уже зарегистрирован
-        await message.answer(
-            f"👋 Добро пожаловать обратно, {user_info['full_name']}!\n"
-            f"📍 Ваш статус: {user_info['status']}\n"
-            f"📍 Местоположение: {user_info['location']}\n\n"
-            f"🎯 Выберите действие:",
-            reply_markup=get_main_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        # Новый пользователь
-        await message.answer(
-            f"👋 Добро пожаловать в бот учета персонала!\n\n"
-            f"🎯 Для начала работы нужно пройти регистрацию.\n"
-            f"📝 Введите ваше полное имя (Фамилия Имя Отчество):",
-            reply_markup=get_main_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
-        )
+
+    try:
+        # Проверяем, зарегистрирован ли пользователь
+        user_info = await db.get_user_info(user_id)
+        logger.debug(f"Результат db.get_user_info: {user_info}")
+
+        if user_info:
+            # Пользователь уже зарегистрирован
+            await message.answer(
+                f"👋 Добро пожаловать обратно, {user_info['full_name']}!\n"
+                f"📍 Ваш статус: {user_info['status']}\n"
+                f"📍 Местоположение: {user_info['location']}\n\n"
+                f"🎯 Выберите действие:",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            # Новый пользователь
+            await message.answer(
+                f"👋 Добро пожаловать в бот учета персонала!\n\n"
+                f"🎯 Для начала работы нужно пройти регистрацию.\n"
+                f"📝 Введите ваше полное имя (Фамилия Имя Отчество):",
+                reply_markup=get_main_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+    except Exception as e:
+        logger.exception("Ошибка в обработчике /start")
+        await message.answer("❌ Произошла ошибка при обработке запроса. Попробуйте позже.")
 
 @dp.message(Command("help"))
 async def help_command(message: types.Message):
@@ -210,15 +215,16 @@ async def admin_command(message: types.Message):
 
 @dp.error()
 async def error_handler(event):
-    """Обработчик ошибок"""
-    logger.error(f"Ошибка: {event.exception}")
-    
+    """Глобальный обработчик ошибок aiogram"""
+    logger.exception("Необработанная ошибка из aiogram", exc_info=event.exception)
+
     try:
-        if event.update.message:
+        if event.update and getattr(event.update, "message", None):
             await event.update.message.answer(
                 "❌ Произошла ошибка при обработке запроса. Попробуйте позже."
             )
-    except:
+    except Exception:
+        # Избежать рекурсивных исключений в обработчике ошибок
         pass
 
 async def main():

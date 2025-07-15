@@ -813,6 +813,7 @@ class Database:
     async def get_user_info(self, telegram_id: int) -> Optional[Dict]:
         """Получение полной информации о пользователе в удобном формате для слоя бизнес-логики"""
         try:
+            logger.debug(f"[DB] Получаем информацию о пользователе telegram_id={telegram_id}")
             user = await self.get_user(telegram_id)
             if not user:
                 return None
