@@ -5,7 +5,7 @@
 cd /home/yourusername/mysite
 
 # Активируем виртуальное окружение Python 3.10
-source venv_bot_310/bin/activate
+. venv_bot_310/bin/activate
 
 # Проверяем наличие .env файла
 if [ ! -f .env ]; then
