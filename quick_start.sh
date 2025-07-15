@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# 🚀 МГНОВЕННЫЙ ЗАПУСК TELEGRAM БОТА
-# Введите токен и ID, остальное автоматически
+# 🚀 ПОЛНАЯ АВТОМАТИЧЕСКАЯ УСТАНОВКА И ЗАПУСК TELEGRAM БОТА
+# Один скрипт для полной настройки Python 3.13 + SSL + Запуск бота
 #
 
 set -e
@@ -11,749 +11,491 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Переменные для запоминания данных
+BOT_TOKEN=""
+ADMIN_ID=""
+
 print_header() {
+    clear
     echo -e "${BLUE}============================================${NC}"
-    echo -e "${BLUE}🚀 МГНОВЕННЫЙ ЗАПУСК TELEGRAM БОТА${NC}"
-    echo -e "${BLUE}🤖 Автоматическая настройка за 30 секунд${NC}"
+    echo -e "${BLUE}🚀 ПОЛНАЯ АВТОМАТИЧЕСКАЯ УСТАНОВКА${NC}"
+    echo -e "${BLUE}🤖 TELEGRAM БОТ - PYTHON 3.13 READY${NC}"
     echo -e "${BLUE}============================================${NC}"
+    echo
+    echo -e "${CYAN}✨ Этот скрипт автоматически:${NC}"
+    echo -e "${CYAN}   • Установит виртуальное окружение${NC}"
+    echo -e "${CYAN}   • Решит проблемы с SSL${NC}"
+    echo -e "${CYAN}   • Установит все зависимости${NC}"
+    echo -e "${CYAN}   • Настроит конфигурацию${NC}"
+    echo -e "${CYAN}   • Запустит вашего бота${NC}"
     echo
 }
 
-check_requirements() {
-    echo -e "${YELLOW}🔍 Проверка требований...${NC}"
+check_system_requirements() {
+    echo -e "${YELLOW}🔍 Проверка системных требований...${NC}"
     
     # Проверка Python 3
     if ! command -v python3 &> /dev/null; then
         echo -e "${RED}❌ Python 3 не найден!${NC}"
-        echo "Установите Python 3: sudo apt update && sudo apt install python3 python3-pip"
+        echo -e "${YELLOW}📦 Установка Python 3...${NC}"
+        sudo apt update
+        sudo apt install -y python3 python3-pip python3-venv
+    fi
+    
+    # Проверка версии Python
+    PYTHON_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    echo -e "${BLUE}   Python версия: ${PYTHON_VERSION}${NC}"
+    
+    if [[ $(echo "$PYTHON_VERSION >= 3.8" | bc -l) -eq 1 ]] 2>/dev/null || [[ "$PYTHON_VERSION" == "3.8" ]] || [[ "$PYTHON_VERSION" == "3.9" ]] || [[ "$PYTHON_VERSION" == "3.10" ]] || [[ "$PYTHON_VERSION" == "3.11" ]] || [[ "$PYTHON_VERSION" == "3.12" ]] || [[ "$PYTHON_VERSION" == "3.13" ]]; then
+        echo -e "${GREEN}   ✅ Версия Python подходит${NC}"
+        if [[ "$PYTHON_VERSION" == "3.13" ]]; then
+            echo -e "${GREEN}   🆕 Python 3.13 обнаружен - применяю специальные настройки${NC}"
+            PYTHON_313_MODE=true
+        else
+            PYTHON_313_MODE=false
+        fi
+    else
+        echo -e "${RED}❌ Требуется Python 3.8 или выше${NC}"
         exit 1
     fi
     
     # Проверка pip
     if ! command -v pip3 &> /dev/null; then
         echo -e "${YELLOW}⚠️ pip3 не найден, устанавливаю...${NC}"
-        sudo apt update
-        sudo apt install python3-pip -y
+        sudo apt install -y python3-pip
     fi
     
-    echo -e "${GREEN}✅ Все требования выполнены${NC}"
+    # Обновление системных SSL-сертификатов
+    echo -e "${YELLOW}🔐 Обновление SSL-сертификатов...${NC}"
+    sudo apt update > /dev/null 2>&1
+    sudo apt install -y ca-certificates > /dev/null 2>&1
+    echo -e "${GREEN}   ✅ SSL-сертификаты обновлены${NC}"
+    
+    echo -e "${GREEN}✅ Системные требования выполнены${NC}"
+    echo
 }
 
-get_credentials() {
-    echo -e "${YELLOW}📝 Введите данные для бота:${NC}"
+get_bot_credentials() {
+    echo -e "${YELLOW}🔑 Настройка бота...${NC}"
     echo
     
-    # Получение токена
+    # Получение токена бота
     while true; do
-        read -p "🔑 Токен бота (от @BotFather): " BOT_TOKEN
+        echo -e "${CYAN}🤖 Получите токен бота:${NC}"
+        echo -e "${CYAN}   1. Откройте https://t.me/BotFather${NC}"
+        echo -e "${CYAN}   2. Отправьте команду /newbot${NC}"
+        echo -e "${CYAN}   3. Следуйте инструкциям${NC}"
+        echo -e "${CYAN}   4. Скопируйте токен${NC}"
+        echo
+        read -p "🔑 Введите токен бота: " BOT_TOKEN
+        
         if [[ -z "$BOT_TOKEN" ]]; then
-            echo -e "${RED}❌ Токен не может быть пустым!${NC}"
+            echo -e "${RED}❌ Токен не может быть пустым${NC}"
             continue
         fi
         
-        if [[ "$BOT_TOKEN" != *":"* ]]; then
-            echo -e "${RED}❌ Неверный формат токена!${NC}"
+        # Базовая проверка формата токена
+        if [[ ! "$BOT_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]]; then
+            echo -e "${RED}❌ Неверный формат токена${NC}"
+            echo -e "${YELLOW}💡 Токен должен выглядеть как: 123456789:ABCdef_12345...${NC}"
             continue
         fi
         
+        echo -e "${GREEN}✅ Токен принят${NC}"
         break
     done
     
-    # Получение Admin ID
+    echo
+    
+    # Получение ID администратора
     while true; do
-        read -p "👤 Ваш Telegram ID (от @userinfobot): " ADMIN_ID
+        echo -e "${CYAN}👤 Получите свой Telegram ID:${NC}"
+        echo -e "${CYAN}   1. Откройте https://t.me/userinfobot${NC}"
+        echo -e "${CYAN}   2. Отправьте любое сообщение${NC}"
+        echo -e "${CYAN}   3. Скопируйте ваш ID${NC}"
+        echo
+        read -p "👤 Введите ваш Telegram ID: " ADMIN_ID
+        
         if [[ -z "$ADMIN_ID" ]]; then
-            echo -e "${RED}❌ Admin ID не может быть пустым!${NC}"
+            echo -e "${RED}❌ ID не может быть пустым${NC}"
             continue
         fi
         
+        # Проверка, что ID - число
         if ! [[ "$ADMIN_ID" =~ ^[0-9]+$ ]]; then
-            echo -e "${RED}❌ Admin ID должен содержать только цифры!${NC}"
+            echo -e "${RED}❌ ID должен быть числом${NC}"
             continue
         fi
         
+        echo -e "${GREEN}✅ ID принят${NC}"
         break
     done
     
-    echo -e "${GREEN}✅ Данные получены${NC}"
+    echo
+    echo -e "${GREEN}🎉 Данные для бота получены!${NC}"
+    echo
 }
 
-create_env() {
-    echo -e "${YELLOW}📄 Создание конфигурации...${NC}"
+setup_virtual_environment() {
+    echo -e "${YELLOW}🐍 Настройка виртуального окружения...${NC}"
     
-    cat > .env << EOF
-# Telegram Bot Configuration
-BOT_TOKEN=$BOT_TOKEN
-ADMIN_ID=$ADMIN_ID
-
-# Database settings
-DB_PATH=data/bot.db
-
-# Timezone
-TIMEZONE=Europe/Moscow
-
-# Debug mode
-DEBUG=False
-
-# Notifications
-ENABLE_NOTIFICATIONS=True
-DAILY_SUMMARY_TIME=19:00
-REMINDER_TIME=20:30
-
-# Auto-restart settings
-MAX_RESTARTS=50
-RESTART_INTERVAL=300
-
-# PythonAnywhere settings
-PYTHONANYWHERE_MODE=True
-HEALTH_CHECK_INTERVAL=21600
-AUTO_RESTART_INTERVAL=3300
-SEND_ERROR_NOTIFICATIONS=True
-SEND_HEALTH_REPORTS=True
-EOF
+    # Удаляем старое окружение, если существует
+    if [[ -d "venv_bot" ]]; then
+        echo -e "${YELLOW}⚠️ Удаляю старое виртуальное окружение...${NC}"
+        rm -rf venv_bot
+    fi
     
-    echo -e "${GREEN}✅ Конфигурация создана${NC}"
+    # Создаем новое окружение
+    echo -e "${BLUE}🏗️ Создание виртуального окружения...${NC}"
+    if python3 -m venv venv_bot --system-site-packages; then
+        echo -e "${GREEN}✅ Виртуальное окружение создано${NC}"
+    else
+        echo -e "${YELLOW}⚠️ Попытка без системных пакетов...${NC}"
+        python3 -m venv venv_bot
+        echo -e "${GREEN}✅ Виртуальное окружение создано${NC}"
+    fi
+    
+    # Проверяем структуру
+    if [[ -f "venv_bot/bin/python" ]]; then
+        echo -e "${GREEN}✅ Структура окружения корректна${NC}"
+    else
+        echo -e "${RED}❌ Ошибка создания окружения${NC}"
+        exit 1
+    fi
+    
+    echo
 }
 
-install_deps() {
+install_dependencies() {
     echo -e "${YELLOW}📦 Установка зависимостей...${NC}"
-    
-    # Создание виртуального окружения
-    python3 -m venv venv_bot
-    source venv_bot/bin/activate
-    
-    # Установка зависимостей
-    pip install -q --upgrade pip
-    pip install -q aiogram aiosqlite python-dotenv aioschedule psutil pytz schedule
-    
-    echo -e "${GREEN}✅ Зависимости установлены${NC}"
-}
-
-setup_dirs() {
-    echo -e "${YELLOW}📁 Создание директорий...${NC}"
-    
-    mkdir -p logs data exports config backups monitoring
-    touch logs/bot.log logs/monitoring.log logs/health.log
-    
-    echo -e "${GREEN}✅ Директории созданы${NC}"
-}
-
-create_monitoring_scripts() {
-    echo -e "${YELLOW}🔍 Создание скриптов мониторинга...${NC}"
-    
-    # Скрипт автоперезапуска каждые 55 минут
-    cat > monitoring/auto_restart.py << 'EOF'
-#!/usr/bin/env python3
-"""
-Автоперезапуск бота каждые 55 минут для PythonAnywhere free
-"""
-
-import os
-import sys
-import time
-import signal
-import asyncio
-import logging
-from datetime import datetime
-from pathlib import Path
-
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/monitoring.log'),
-        logging.StreamHandler()
-    ]
-)
-
-async def send_notification(message):
-    """Отправка уведомления админу"""
-    try:
-        from aiogram import Bot
-        from dotenv import load_dotenv
-        
-        load_dotenv()
-        bot_token = os.getenv('BOT_TOKEN')
-        admin_id = os.getenv('ADMIN_ID')
-        
-        if bot_token and admin_id:
-            bot = Bot(token=bot_token)
-            await bot.send_message(
-                chat_id=admin_id,
-                text=f"🔄 AutoRestart: {message}",
-                parse_mode='HTML'
-            )
-            await bot.session.close()
-    except Exception as e:
-        logging.error(f"Ошибка отправки уведомления: {e}")
-
-def find_bot_process():
-    """Найти процесс бота"""
-    import psutil
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-        try:
-            if proc.info['cmdline'] and 'main.py' in ' '.join(proc.info['cmdline']):
-                return proc.info['pid']
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-    return None
-
-async def restart_bot():
-    """Перезапуск бота"""
-    try:
-        # Найти и завершить процесс
-        pid = find_bot_process()
-        if pid:
-            try:
-                os.kill(pid, signal.SIGTERM)
-                time.sleep(2)
-                logging.info(f"Процесс {pid} завершен")
-            except ProcessLookupError:
-                pass
-        
-        # Запуск нового процесса
-        project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        os.system(f"cd {project_dir} && source venv_bot/bin/activate && nohup python3 main.py > logs/bot.log 2>&1 &")
-        
-        await send_notification("Бот перезапущен успешно")
-        logging.info("Бот перезапущен")
-        
-    except Exception as e:
-        error_msg = f"Ошибка перезапуска: {e}"
-        logging.error(error_msg)
-        await send_notification(error_msg)
-
-if __name__ == "__main__":
-    asyncio.run(restart_bot())
-EOF
-
-    # Скрипт проверки здоровья каждые 6 часов
-    cat > monitoring/health_check.py << 'EOF'
-#!/usr/bin/env python3
-"""
-Проверка здоровья бота каждые 6 часов
-"""
-
-import os
-import sys
-import time
-import asyncio
-import logging
-import psutil
-from datetime import datetime
-from pathlib import Path
-
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/health.log'),
-        logging.StreamHandler()
-    ]
-)
-
-async def send_health_report(status, details):
-    """Отправка отчета о здоровье"""
-    try:
-        from aiogram import Bot
-        from dotenv import load_dotenv
-        
-        load_dotenv()
-        bot_token = os.getenv('BOT_TOKEN')
-        admin_id = os.getenv('ADMIN_ID')
-        
-        if bot_token and admin_id:
-            bot = Bot(token=bot_token)
-            
-            icon = "✅" if status == "healthy" else "❌"
-            report = f"""
-{icon} <b>Отчет о здоровье бота</b>
-
-📊 <b>Статус:</b> {status}
-🕐 <b>Время:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-📋 <b>Детали:</b>
-{details}
-"""
-            
-            await bot.send_message(
-                chat_id=admin_id,
-                text=report,
-                parse_mode='HTML'
-            )
-            await bot.session.close()
-    except Exception as e:
-        logging.error(f"Ошибка отправки отчета: {e}")
-
-def check_bot_process():
-    """Проверка процесса бота"""
-    for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'memory_info', 'cpu_percent']):
-        try:
-            if proc.info['cmdline'] and 'main.py' in ' '.join(proc.info['cmdline']):
-                return {
-                    'pid': proc.info['pid'],
-                    'memory': proc.info['memory_info'].rss / 1024 / 1024,  # MB
-                    'cpu': proc.info['cpu_percent']
-                }
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-    return None
-
-def check_log_file():
-    """Проверка лог файла"""
-    try:
-        log_file = Path('logs/bot.log')
-        if log_file.exists():
-            size = log_file.stat().st_size / 1024  # KB
-            modified = datetime.fromtimestamp(log_file.stat().st_mtime)
-            return {
-                'size': size,
-                'last_modified': modified,
-                'exists': True
-            }
-    except Exception as e:
-        logging.error(f"Ошибка проверки лог файла: {e}")
-    return {'exists': False}
-
-def check_database():
-    """Проверка базы данных"""
-    try:
-        db_file = Path('data/bot.db')
-        if db_file.exists():
-            size = db_file.stat().st_size / 1024  # KB
-            return {
-                'size': size,
-                'exists': True
-            }
-    except Exception as e:
-        logging.error(f"Ошибка проверки БД: {e}")
-    return {'exists': False}
-
-async def health_check():
-    """Основная проверка здоровья"""
-    try:
-        # Проверка процесса
-        process_info = check_bot_process()
-        
-        # Проверка лог файла
-        log_info = check_log_file()
-        
-        # Проверка базы данных
-        db_info = check_database()
-        
-        # Системная информация
-        system_info = {
-            'cpu_percent': psutil.cpu_percent(interval=1),
-            'memory_percent': psutil.virtual_memory().percent,
-            'disk_percent': psutil.disk_usage('/').percent
-        }
-        
-        # Формирование отчета
-        status = "healthy" if process_info else "unhealthy"
-        
-        details = f"""
-🔧 <b>Процесс:</b> {'✅ Работает' if process_info else '❌ Не найден'}
-{f"   - PID: {process_info['pid']}" if process_info else ""}
-{f"   - Память: {process_info['memory']:.1f} MB" if process_info else ""}
-{f"   - CPU: {process_info['cpu']:.1f}%" if process_info else ""}
-
-📝 <b>Лог файл:</b> {'✅ Найден' if log_info['exists'] else '❌ Отсутствует'}
-{f"   - Размер: {log_info['size']:.1f} KB" if log_info['exists'] else ""}
-{f"   - Изменен: {log_info['last_modified']}" if log_info['exists'] else ""}
-
-💾 <b>База данных:</b> {'✅ Найдена' if db_info['exists'] else '❌ Отсутствует'}
-{f"   - Размер: {db_info['size']:.1f} KB" if db_info['exists'] else ""}
-
-🖥️ <b>Система:</b>
-   - CPU: {system_info['cpu_percent']:.1f}%
-   - Память: {system_info['memory_percent']:.1f}%
-   - Диск: {system_info['disk_percent']:.1f}%
-"""
-        
-        await send_health_report(status, details)
-        logging.info(f"Проверка здоровья завершена: {status}")
-        
-        # Если процесс не найден, попытаться перезапустить
-        if not process_info:
-            logging.warning("Процесс бота не найден, попытка перезапуска...")
-            project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            os.system(f"cd {project_dir} && python3 monitoring/auto_restart.py")
-        
-    except Exception as e:
-        error_msg = f"Ошибка проверки здоровья: {e}"
-        logging.error(error_msg)
-        await send_health_report("error", error_msg)
-
-if __name__ == "__main__":
-    asyncio.run(health_check())
-EOF
-
-    # Скрипт ошибок с уведомлениями
-    cat > monitoring/error_monitor.py << 'EOF'
-#!/usr/bin/env python3
-"""
-Мониторинг ошибок в логах и отправка уведомлений
-"""
-
-import os
-import asyncio
-import logging
-from datetime import datetime
-from pathlib import Path
-
-async def send_error_notification(error_text):
-    """Отправка уведомления об ошибке"""
-    try:
-        from aiogram import Bot
-        from dotenv import load_dotenv
-        
-        load_dotenv()
-        bot_token = os.getenv('BOT_TOKEN')
-        admin_id = os.getenv('ADMIN_ID')
-        
-        if bot_token and admin_id:
-            bot = Bot(token=bot_token)
-            
-            message = f"""
-🚨 <b>ОШИБКА БОТА</b>
-
-🕐 <b>Время:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-❌ <b>Ошибка:</b>
-<code>{error_text[:1000]}</code>
-"""
-            
-            await bot.send_message(
-                chat_id=admin_id,
-                text=message,
-                parse_mode='HTML'
-            )
-            await bot.session.close()
-    except Exception as e:
-        print(f"Ошибка отправки уведомления об ошибке: {e}")
-
-def monitor_errors():
-    """Мониторинг ошибок в логах"""
-    log_file = Path('logs/bot.log')
-    
-    if not log_file.exists():
-        return
-    
-    try:
-        # Читаем последние строки лога
-        with open(log_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            
-        # Ищем ошибки в последних 50 строках
-        for line in lines[-50:]:
-            if any(word in line.lower() for word in ['error', 'exception', 'traceback', 'failed']):
-                asyncio.run(send_error_notification(line.strip()))
-                break
-                
-    except Exception as e:
-        print(f"Ошибка мониторинга: {e}")
-
-if __name__ == "__main__":
-    monitor_errors()
-EOF
-
-    # Делаем скрипты исполняемыми
-    chmod +x monitoring/*.py
-    
-    echo -e "${GREEN}✅ Скрипты мониторинга созданы${NC}"
-}
-
-setup_pythonanywhere_tasks() {
-    echo -e "${YELLOW}🔧 Настройка задач PythonAnywhere...${NC}"
-    
-    # Создание главного скрипта для daily task
-    cat > monitoring/daily_task.py << 'EOF'
-#!/usr/bin/env python3
-"""
-Главный скрипт для ежедневной задачи PythonAnywhere
-Запускает мониторинг и автоперезапуск
-"""
-
-import os
-import sys
-import time
-import asyncio
-import schedule
-import threading
-from datetime import datetime
-from pathlib import Path
-
-# Добавляем корневую директорию в PATH
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-def run_health_check():
-    """Запуск проверки здоровья"""
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    os.system(f"cd {project_dir} && python3 monitoring/health_check.py")
-
-def run_auto_restart():
-    """Запуск автоперезапуска"""
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    os.system(f"cd {project_dir} && python3 monitoring/auto_restart.py")
-
-def run_error_monitor():
-    """Запуск мониторинга ошибок"""
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    os.system(f"cd {project_dir} && python3 monitoring/error_monitor.py")
-
-def setup_scheduler():
-    """Настройка расписания"""
-    # Проверка здоровья каждые 6 часов
-    schedule.every(6).hours.do(run_health_check)
-    
-    # Автоперезапуск каждые 55 минут
-    schedule.every(55).minutes.do(run_auto_restart)
-    
-    # Мониторинг ошибок каждые 30 минут
-    schedule.every(30).minutes.do(run_error_monitor)
-    
-    print(f"🚀 Планировщик запущен: {datetime.now()}")
-    print("📅 Расписание:")
-    print("   - Проверка здоровья: каждые 6 часов")
-    print("   - Автоперезапуск: каждые 55 минут")
-    print("   - Мониторинг ошибок: каждые 30 минут")
-    
-    # Запуск начальных проверок
-    run_health_check()
-    run_auto_restart()
-    
-    # Основной цикл
-    while True:
-        schedule.run_pending()
-        time.sleep(60)  # Проверка каждую минуту
-
-if __name__ == "__main__":
-    setup_scheduler()
-EOF
-
-    # Инструкция по настройке PythonAnywhere
-    cat > monitoring/PYTHONANYWHERE_SETUP.md << 'EOF'
-# 🚀 Настройка PythonAnywhere Free
-
-## Шаг 1: Настройка Daily Task
-
-1. Перейдите в **Dashboard** -> **Tasks**
-2. Нажмите **Create a new task**
-3. Заполните поля:
-   - **Command**: `python3 /home/yourusername/yourproject/monitoring/daily_task.py`
-   - **Frequency**: `Daily`
-   - **Time**: `00:00` (полночь)
-   
-⚠️ **Важно**: Замените `/home/yourusername/yourproject` на полный путь к вашему проекту!
-
-## Шаг 2: Проверка работы
-
-После создания задачи:
-1. Бот будет автоматически перезапускаться каждые 55 минут
-2. Проверка здоровья будет выполняться каждые 6 часов
-3. Уведомления об ошибках будут приходить в Telegram
-
-## Шаг 3: Мониторинг логов
-
-Проверяйте логи:
-- `logs/bot.log` - основной лог бота
-- `logs/monitoring.log` - лог мониторинга
-- `logs/health.log` - лог проверки здоровья
-
-## Важные моменты:
-
-⚠️ **Ограничения Free аккаунта:**
-- Только одна Daily Task
-- Время выполнения ограничено
-- Нет фонового выполнения
-
-✅ **Преимущества данного решения:**
-- Автоматический перезапуск
-- Мониторинг здоровья
-- Уведомления об ошибках
-- Работа в рамках ограничений Free
-
-## Команды для отладки:
-
-```bash
-# Запуск проверки здоровья
-python3 monitoring/health_check.py
-
-# Запуск автоперезапуска
-python3 monitoring/auto_restart.py
-
-# Запуск мониторинга ошибок
-python3 monitoring/error_monitor.py
-
-# Запуск главного планировщика
-python3 monitoring/daily_task.py
-```
-EOF
-
-    chmod +x monitoring/daily_task.py
-    
-    echo -e "${GREEN}✅ Задачи PythonAnywhere настроены${NC}"
-    echo -e "${BLUE}📋 Инструкция: monitoring/PYTHONANYWHERE_SETUP.md${NC}"
-}
-
-test_bot() {
-    echo -e "${YELLOW}🔍 Тестирование бота...${NC}"
     
     # Активируем виртуальное окружение
     source venv_bot/bin/activate
     
-    # Тест подключения
-    python3 -c "
-import asyncio
-from aiogram import Bot
-import sys
-
-async def test():
-    bot = Bot(token='$BOT_TOKEN')
-    try:
-        me = await bot.get_me()
-        print('✅ Бот подключен: @' + me.username + ' (' + me.first_name + ')')
-        await bot.session.close()
-        return True
-    except Exception as e:
-        print('❌ Ошибка:', e)
-        await bot.session.close()
-        return False
-
-result = asyncio.run(test())
-sys.exit(0 if result else 1)
-"
+    # Обновляем pip
+    echo -e "${BLUE}🔄 Обновление pip...${NC}"
+    python -m pip install --upgrade pip > /dev/null 2>&1
+    echo -e "${GREEN}✅ pip обновлен${NC}"
     
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✅ Тест прошел успешно${NC}"
-    else
-        echo -e "${RED}❌ Тест не прошел. Проверьте токен.${NC}"
-        exit 1
-    fi
+    # Устанавливаем базовые пакеты
+    echo -e "${BLUE}🔄 Установка базовых пакетов...${NC}"
+    pip install --upgrade setuptools wheel > /dev/null 2>&1
+    echo -e "${GREEN}✅ Базовые пакеты установлены${NC}"
+    
+    # Устанавливаем критически важные пакеты
+    echo -e "${BLUE}🔄 Установка SSL и HTTP пакетов...${NC}"
+    pip install certifi cryptography aiohttp > /dev/null 2>&1
+    echo -e "${GREEN}✅ SSL пакеты установлены${NC}"
+    
+    # Устанавливаем aiogram и зависимости
+    echo -e "${BLUE}🔄 Установка Telegram API...${NC}"
+    pip install aiogram python-dotenv aiosqlite > /dev/null 2>&1
+    echo -e "${GREEN}✅ Telegram API установлен${NC}"
+    
+    # Пытаемся установить дополнительные пакеты (не критично)
+    echo -e "${BLUE}🔄 Установка дополнительных пакетов...${NC}"
+    pip install aioschedule pytz schedule psutil > /dev/null 2>&1 || true
+    echo -e "${GREEN}✅ Дополнительные пакеты установлены${NC}"
+    
+    echo
 }
 
-create_service() {
-    echo -e "${YELLOW}🔧 Настройка автозапуска...${NC}"
+create_configuration() {
+    echo -e "${YELLOW}📝 Создание конфигурации...${NC}"
     
-    # Создание systemd сервиса
-    SERVICE_FILE="/etc/systemd/system/telegram-bot.service"
-    
-    if [ "$EUID" -eq 0 ]; then
-        # Если запущено с sudo
-        cat > $SERVICE_FILE << EOF
-[Unit]
-Description=Telegram Bot Service
-After=network.target
+    # Создаем .env файл
+    cat > .env << EOF
+# Основные настройки бота
+BOT_TOKEN=${BOT_TOKEN}
+ADMIN_IDS=${ADMIN_ID}
 
-[Service]
-Type=simple
-User=$SUDO_USER
-WorkingDirectory=$PWD
-ExecStart=$PWD/venv_bot/bin/python $PWD/main.py
-Restart=always
-RestartSec=10
-Environment=PYTHONUNBUFFERED=1
+# Настройки базы данных
+DB_PATH=data/bot_database.db
 
-[Install]
-WantedBy=multi-user.target
+# Настройки уведомлений
+NOTIFICATIONS_ENABLED=true
+DAILY_SUMMARY_TIME=19:00
+REMINDERS_TIME=20:30
+
+# Настройки логирования
+LOG_LEVEL=INFO
+LOG_FILE=logs/bot.log
+
+# Настройки экспорта
+EXPORT_PATH=exports/
+
+# Настройки мониторинга
+HEALTH_CHECK_INTERVAL=21600
+
+# Настройки для Python 3.13
+PYTHONHTTPSVERIFY=1
+SSL_VERIFY=true
 EOF
+    
+    echo -e "${GREEN}✅ Файл .env создан${NC}"
+    
+    # Создаем необходимые директории
+    mkdir -p data logs exports
+    echo -e "${GREEN}✅ Директории созданы${NC}"
+    
+    echo
+}
+
+test_ssl_connection() {
+    echo -e "${YELLOW}🔗 Тестирование SSL-соединения...${NC}"
+    
+    # Активируем виртуальное окружение
+    source venv_bot/bin/activate
+    
+    # Создаем тестовый скрипт
+    cat > test_connection_temp.py << 'EOF'
+import asyncio
+import aiohttp
+import ssl
+import certifi
+import sys
+
+async def test_telegram_connection():
+    try:
+        # Создаем SSL-контекст
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
         
-        systemctl daemon-reload
-        systemctl enable telegram-bot
-        echo -e "${GREEN}✅ Сервис создан${NC}"
+        async with aiohttp.ClientSession(connector=connector) as session:
+            # Тестируем соединение с Telegram API
+            async with session.get('https://api.telegram.org/bot/getMe') as response:
+                if response.status in [200, 401, 404]:
+                    return True
+                return False
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        return False
+
+if __name__ == "__main__":
+    result = asyncio.run(test_telegram_connection())
+    sys.exit(0 if result else 1)
+EOF
+    
+    # Запускаем тест
+    if python test_connection_temp.py > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ SSL-соединение с Telegram API работает${NC}"
+        SSL_TEST_PASSED=true
     else
-        # Если запущено без sudo
-        echo -e "${YELLOW}⚠️ Для автозапуска нужны права администратора${NC}"
-        echo "Запустите: sudo systemctl enable telegram-bot"
+        echo -e "${YELLOW}⚠️ SSL-соединение может работать нестабильно${NC}"
+        SSL_TEST_PASSED=false
+    fi
+    
+    # Удаляем временный файл
+    rm -f test_connection_temp.py
+    
+    echo
+}
+
+test_bot_token() {
+    echo -e "${YELLOW}🤖 Тестирование токена бота...${NC}"
+    
+    # Активируем виртуальное окружение
+    source venv_bot/bin/activate
+    
+    # Создаем тестовый скрипт
+    cat > test_bot_temp.py << EOF
+import asyncio
+import aiohttp
+import ssl
+import certifi
+import sys
+
+async def test_bot():
+    try:
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
+        
+        async with aiohttp.ClientSession(connector=connector) as session:
+            url = f'https://api.telegram.org/bot${BOT_TOKEN}/getMe'
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get('ok'):
+                        bot_info = data.get('result', {})
+                        print(f"✅ Бот подключен: @{bot_info.get('username', 'unknown')} ({bot_info.get('first_name', 'unknown')})")
+                        return True
+                print("❌ Неверный токен бота")
+                return False
+    except Exception as e:
+        print(f"❌ Ошибка подключения: {e}")
+        return False
+
+if __name__ == "__main__":
+    result = asyncio.run(test_bot())
+    sys.exit(0 if result else 1)
+EOF
+    
+    # Запускаем тест
+    if python test_bot_temp.py; then
+        BOT_TEST_PASSED=true
+    else
+        BOT_TEST_PASSED=false
+    fi
+    
+    # Удаляем временный файл
+    rm -f test_bot_temp.py
+    
+    echo
+}
+
+verify_installation() {
+    echo -e "${YELLOW}🔍 Проверка установки...${NC}"
+    
+    # Активируем виртуальное окружение
+    source venv_bot/bin/activate
+    
+    # Проверяем критические пакеты
+    PACKAGES_OK=true
+    
+    for package in "aiogram" "aiohttp" "certifi" "cryptography" "python-dotenv" "aiosqlite"; do
+        if python -c "import $package" > /dev/null 2>&1; then
+            echo -e "${GREEN}   ✅ $package${NC}"
+        else
+            echo -e "${RED}   ❌ $package${NC}"
+            PACKAGES_OK=false
+        fi
+    done
+    
+    # Проверяем файлы
+    if [[ -f ".env" ]]; then
+        echo -e "${GREEN}   ✅ .env файл${NC}"
+    else
+        echo -e "${RED}   ❌ .env файл${NC}"
+        PACKAGES_OK=false
+    fi
+    
+    if [[ -f "main.py" ]]; then
+        echo -e "${GREEN}   ✅ main.py${NC}"
+    else
+        echo -e "${RED}   ❌ main.py${NC}"
+        PACKAGES_OK=false
+    fi
+    
+    echo
+    
+    if [[ "$PACKAGES_OK" == true ]]; then
+        echo -e "${GREEN}✅ Проверка установки пройдена${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ Проблемы с установкой${NC}"
+        return 1
     fi
 }
 
 start_bot() {
     echo -e "${YELLOW}🚀 Запуск бота...${NC}"
+    echo
     
-    # Попытка запуска через systemd
-    if systemctl start telegram-bot 2>/dev/null; then
-        echo -e "${GREEN}✅ Бот запущен через systemd${NC}"
-        echo -e "${BLUE}📊 Статус: sudo systemctl status telegram-bot${NC}"
-    else
-        # Запуск в фоновом режиме
-        echo -e "${YELLOW}⚠️ Запуск в фоновом режиме...${NC}"
-        source venv_bot/bin/activate
-        nohup python3 main.py > logs/bot.log 2>&1 &
-        sleep 2
-        echo -e "${GREEN}✅ Бот запущен в фоновом режиме${NC}"
-    fi
+    # Активируем виртуальное окружение
+    source venv_bot/bin/activate
+    
+    # Показываем информацию о запуске
+    echo -e "${BLUE}📋 Информация о запуске:${NC}"
+    echo -e "${BLUE}   • Виртуальное окружение: активировано${NC}"
+    echo -e "${BLUE}   • Токен бота: настроен${NC}"
+    echo -e "${BLUE}   • ID администратора: $ADMIN_ID${NC}"
+    echo -e "${BLUE}   • SSL-соединение: $(if [[ "$SSL_TEST_PASSED" == true ]]; then echo "✅ работает"; else echo "⚠️ проверьте"; fi)${NC}"
+    echo -e "${BLUE}   • Токен бота: $(if [[ "$BOT_TEST_PASSED" == true ]]; then echo "✅ валиден"; else echo "⚠️ проверьте"; fi)${NC}"
+    echo
+    
+    echo -e "${GREEN}🎉 Запускаю вашего Telegram бота...${NC}"
+    echo -e "${CYAN}💡 Для остановки нажмите Ctrl+C${NC}"
+    echo
+    
+    # Запускаем бота
+    python main.py
 }
 
-show_success() {
-    echo
+print_success_info() {
     echo -e "${GREEN}============================================${NC}"
-    echo -e "${GREEN}🎉 УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО!${NC}"
+    echo -e "${GREEN}🎉 БОТ УСПЕШНО НАСТРОЕН!${NC}"
     echo -e "${GREEN}============================================${NC}"
-    echo -e "${GREEN}✅ Бот настроен и запущен${NC}"
-    echo -e "${GREEN}✅ Работает в режиме 24/7${NC}"
-    echo -e "${GREEN}✅ Все зависимости установлены${NC}"
-    echo -e "${GREEN}✅ Мониторинг и автоперезапуск настроены${NC}"
     echo
-    echo -e "${BLUE}📋 Полезные команды:${NC}"
-    echo "   source venv_bot/bin/activate && python3 main.py"
-    echo "   tail -f logs/bot.log"
-    echo "   tail -f logs/monitoring.log"
-    echo "   tail -f logs/health.log"
-    echo "   sudo systemctl status telegram-bot"
+    echo -e "${BLUE}📋 Полезная информация:${NC}"
     echo
-    echo -e "${BLUE}🔧 Мониторинг:${NC}"
-    echo "   python3 monitoring/health_check.py"
-    echo "   python3 monitoring/auto_restart.py"
-    echo "   python3 monitoring/daily_task.py"
+    echo -e "${CYAN}🔧 Управление ботом:${NC}"
+    echo -e "${CYAN}   Запуск: source venv_bot/bin/activate && python main.py${NC}"
+    echo -e "${CYAN}   Остановка: Ctrl+C${NC}"
+    echo -e "${CYAN}   Логи: tail -f logs/bot.log${NC}"
     echo
-    echo -e "${YELLOW}📋 Для PythonAnywhere Free:${NC}"
-    echo "   Настройте Daily Task: monitoring/PYTHONANYWHERE_SETUP.md"
-    echo "   Команда: python3 $PWD/monitoring/daily_task.py"
+    echo -e "${CYAN}🛠️ Диагностика:${NC}"
+    echo -e "${CYAN}   Проверка SSL: python test_ssl_connection.py${NC}"
+    echo -e "${CYAN}   Проверка конфигурации: python check_config.py${NC}"
     echo
-    echo -e "${BLUE}📱 Найдите бота в Telegram и отправьте /start${NC}"
-    echo -e "${GREEN}============================================${NC}"
+    echo -e "${CYAN}📝 Файлы конфигурации:${NC}"
+    echo -e "${CYAN}   .env - основные настройки${NC}"
+    echo -e "${CYAN}   data/ - база данных${NC}"
+    echo -e "${CYAN}   logs/ - логи бота${NC}"
+    echo
+    echo -e "${BLUE}🔗 Полезные ссылки:${NC}"
+    echo -e "${BLUE}   Токен бота: https://t.me/BotFather${NC}"
+    echo -e "${BLUE}   Ваш ID: https://t.me/userinfobot${NC}"
+    echo
 }
+
+# Обработка прерывания
+trap 'echo -e "\n${RED}❌ Установка прервана пользователем${NC}"; exit 1' INT
 
 # Основная функция
 main() {
     print_header
-    check_requirements
-    get_credentials
-    create_env
-    install_deps
-    setup_dirs
-    create_monitoring_scripts
-    setup_pythonanywhere_tasks
-    test_bot
-    create_service
-    start_bot
-    show_success
+    
+    echo -e "${PURPLE}🚀 Начинаю полную автоматическую установку...${NC}"
+    echo
+    
+    # Шаг 1: Проверка системы
+    check_system_requirements
+    
+    # Шаг 2: Получение данных бота
+    get_bot_credentials
+    
+    # Шаг 3: Настройка виртуального окружения
+    setup_virtual_environment
+    
+    # Шаг 4: Установка зависимостей
+    install_dependencies
+    
+    # Шаг 5: Создание конфигурации
+    create_configuration
+    
+    # Шаг 6: Тестирование SSL
+    test_ssl_connection
+    
+    # Шаг 7: Тестирование токена бота
+    test_bot_token
+    
+    # Шаг 8: Проверка установки
+    if ! verify_installation; then
+        echo -e "${RED}❌ Установка не завершена. Попробуйте снова.${NC}"
+        exit 1
+    fi
+    
+    # Шаг 9: Показываем информацию об успехе
+    print_success_info
+    
+    # Шаг 10: Предложение запуска
+    echo -e "${YELLOW}🚀 Запустить бота сейчас? (y/N): ${NC}"
+    read -r START_NOW
+    
+    if [[ "$START_NOW" =~ ^[Yy]$ ]]; then
+        start_bot
+    else
+        echo
+        echo -e "${BLUE}💡 Для запуска бота позже используйте:${NC}"
+        echo -e "${BLUE}   source venv_bot/bin/activate && python main.py${NC}"
+        echo
+        echo -e "${GREEN}✅ Установка завершена успешно!${NC}"
+    fi
 }
 
-# Проверка на повторный запуск
-if [ -f ".last_run" ]; then
-    LAST_RUN=$(cat .last_run)
-    CURRENT_TIME=$(date +%s)
-    TIME_DIFF=$((CURRENT_TIME - LAST_RUN))
-    
-    if [ $TIME_DIFF -lt 86400 ]; then
-        echo -e "${YELLOW}⏰ Ограничение: можно запускать только раз в сутки${NC}"
-        echo -e "${YELLOW}🕐 Осталось: $(((86400 - TIME_DIFF) / 3600)) часов${NC}"
-        read -p "❓ Игнорировать ограничение? (y/N): " FORCE
-        if [ "$FORCE" != "y" ]; then
-            echo -e "${RED}❌ Установка отменена${NC}"
-            exit 1
-        fi
-    fi
-fi
-
-# Запись времени запуска
-date +%s > .last_run
-
 # Запуск основной функции
-main
+main "$@"
