@@ -7,7 +7,10 @@ import re
 import pytz
 from datetime import datetime
 from typing import Dict, List, Optional
-from database import get_user
+from database import Database
+
+# Создаем экземпляр базы данных
+db = Database()
 
 # Локации с эмодзи
 LOCATIONS = {
@@ -85,16 +88,20 @@ def validate_full_name(full_name: str) -> bool:
     
     return bool(re.match(pattern, full_name))
 
-def is_admin(telegram_id: int) -> bool:
+async def is_admin(telegram_id: int) -> bool:
     """Проверка, является ли пользователь администратором"""
     # Проверяем в переменных окружения
     if telegram_id in ADMIN_IDS:
         return True
     
     # Проверяем в базе данных
-    user = get_user(telegram_id)
-    if user and user.get('is_admin'):
-        return True
+    try:
+        await db.init()
+        user = await db.get_user(telegram_id)
+        if user and user.get('is_admin'):
+            return True
+    except Exception:
+        pass
     
     return False
 
@@ -361,21 +368,33 @@ def format_duration(seconds: int) -> str:
         else:
             return f"{hours} ч. {minutes} мин."
 
-def is_main_admin(telegram_id: int) -> bool:
+async def is_main_admin(telegram_id: int) -> bool:
     """Проверка, является ли пользователь главным админом"""
-    from database import get_user_role
-    return get_user_role(telegram_id) == 'main_admin'
+    try:
+        await db.init()
+        user = await db.get_user(telegram_id)
+        return user and user.get('role') == 'main_admin'
+    except Exception:
+        return False
 
-def is_admin_or_main_admin(telegram_id: int) -> bool:
+async def is_admin_or_main_admin(telegram_id: int) -> bool:
     """Проверка, является ли пользователь админом или главным админом"""
-    from database import get_user_role
-    role = get_user_role(telegram_id)
-    return role in ['admin', 'main_admin']
+    try:
+        await db.init()
+        user = await db.get_user(telegram_id)
+        role = user.get('role') if user else None
+        return role in ['admin', 'main_admin']
+    except Exception:
+        return False
 
-def get_user_role(telegram_id: int) -> str:
+async def get_user_role(telegram_id: int) -> str:
     """Получение роли пользователя"""
-    from database import get_user_role as db_get_user_role
-    return db_get_user_role(telegram_id)
+    try:
+        await db.init()
+        user = await db.get_user(telegram_id)
+        return user.get('role', 'soldier') if user else 'soldier'
+    except Exception:
+        return 'soldier'
 
 def get_role_display_name(role: str) -> str:
     """Получение отображаемого названия роли"""
@@ -395,57 +414,67 @@ def get_role_emoji(role: str) -> str:
     }
     return role_emojis.get(role, '❓')
 
-def is_in_location(user_id: int) -> bool:
+async def is_in_location(user_id: int) -> bool:
     """Проверка, находится ли боец в расположении (в части)"""
-    from database import get_user_current_location
-    current_location = get_user_current_location(user_id)
-    return current_location is not None
+    try:
+        await db.init()
+        # Проверяем статус бойца
+        return await db.is_soldier_in_unit(user_id)
+    except Exception:
+        return False
 
-def get_status_with_emoji(user_id: int) -> str:
+async def get_status_with_emoji(user_id: int) -> str:
     """Получение статуса с эмодзи (🟢 в расположении / 🔴 вне расположения)"""
-    if is_in_location(user_id):
+    if await is_in_location(user_id):
         return "🟢 В расположении"
     else:
         return "🔴 Вне расположения"
 
-def generate_military_summary() -> str:
+async def generate_military_summary() -> str:
     """Генерация военной сводки с эмодзи"""
-    from database import get_active_users_by_location, get_users_without_location, get_all_users
-    
-    active_locations = get_active_users_by_location()
-    users_without_location = get_users_without_location()
-    all_users = get_all_users()
-    
-    summary = "📊 <b>ВОЕННАЯ СВОДКА</b>\n\n"
-    summary += f"📅 Дата: {get_current_time().strftime('%d.%m.%Y')}\n"
-    summary += f"🕒 Время: {get_current_time().strftime('%H:%M')}\n\n"
-    
-    # Общая статистика
-    total_users = len(all_users)
-    in_location = total_users - len(users_without_location)
-    out_location = len(users_without_location)
-    
-    summary += f"👥 <b>Общая численность:</b> {total_users} чел.\n"
-    summary += f"🟢 <b>В расположении:</b> {in_location} чел.\n"
-    summary += f"🔴 <b>Вне расположения:</b> {out_location} чел.\n\n"
-    
-    # Группировка по локациям
-    if active_locations:
-        summary += "📍 <b>Распределение по локациям:</b>\n"
-        for location, users in active_locations.items():
-            emoji = get_location_emoji(location)
-            summary += f"{emoji} <b>{location}</b>: {len(users)} чел.\n"
-            for user in users:
-                summary += f"  • {user['full_name']}\n"
+    try:
+        await db.init()
+        
+        # Получаем данные из базы
+        soldiers_in_unit = await db.get_soldiers_in_unit()
+        soldiers_away = await db.get_soldiers_away()
+        soldiers_away_by_location = await db.get_soldiers_away_by_location()
+        all_users = await db.get_all_users()
+        
+        summary = "📊 <b>ВОЕННАЯ СВОДКА</b>\n\n"
+        summary += f"📅 Дата: {get_current_time().strftime('%d.%m.%Y')}\n"
+        summary += f"🕒 Время: {get_current_time().strftime('%H:%M')}\n\n"
+        
+        # Общая статистика
+        total_users = len(all_users)
+        in_location = len(soldiers_in_unit)
+        out_location = len(soldiers_away)
+        
+        summary += f"👥 <b>Общая численность:</b> {total_users} чел.\n"
+        summary += f"🟢 <b>В расположении:</b> {in_location} чел.\n"
+        summary += f"🔴 <b>Вне расположения:</b> {out_location} чел.\n\n"
+        
+        # Список в расположении
+        if soldiers_in_unit:
+            summary += "🟢 <b>В расположении:</b>\n"
+            for soldier in soldiers_in_unit:
+                summary += f"  • {soldier.get('name', 'Неизвестно')}\n"
             summary += "\n"
-    
-    # Список вне расположения
-    if users_without_location:
-        summary += "🔴 <b>Вне расположения:</b>\n"
-        for user in users_without_location:
-            summary += f"• {user['full_name']}\n"
-    
-    return summary
+        
+        # Группировка по локациям (вне части)
+        if soldiers_away_by_location:
+            summary += "📍 <b>Вне части по локациям:</b>\n"
+            for location, users in soldiers_away_by_location.items():
+                emoji = get_location_emoji(location)
+                summary += f"{emoji} <b>{location}</b>: {len(users)} чел.\n"
+                for user in users:
+                    summary += f"  • {user.get('name', 'Неизвестно')}\n"
+                summary += "\n"
+        
+        return summary
+        
+    except Exception as e:
+        return f"❌ Ошибка генерации сводки: {e}"
 
 def generate_location_summary_with_emojis(locations_data: Dict) -> str:
     """Генерация сводки по локациям с эмодзи статусов"""
