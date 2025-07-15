@@ -43,7 +43,7 @@ def setup_python310_environment():
         return False
     
     # Устанавливаем зависимости
-    if not run_command("source venv_bot_310/bin/activate && pip install -r requirements_python310.txt", "Установка зависимостей"):
+    if not run_command("source venv_bot_310/bin/activate && pip install -r requirements.txt", "Установка зависимостей"):
         print("❌ Не удалось установить зависимости")
         return False
     
@@ -88,11 +88,11 @@ fi
 python run_bot.py
 """
     
-    with open("start_pythonanywhere.sh", "w", encoding="utf-8") as f:
+    with open("2_start.sh", "w", encoding="utf-8") as f:
         f.write(startup_script)
     
     # Делаем скрипт исполняемым
-    os.chmod("start_pythonanywhere.sh", 0o755)
+    os.chmod("2_start.sh", 0o755)
     
     return True
 
@@ -120,7 +120,7 @@ def restart_bot():
     time.sleep(5)
     
     # Запускаем новый процесс
-    subprocess.Popen(["/bin/bash", "start_pythonanywhere.sh"])
+    subprocess.Popen(["/bin/bash", "2_start.sh"])
 
 def main():
     \"\"\"Основная функция планировщика\"\"\"
@@ -143,7 +143,7 @@ if __name__ == "__main__":
     main()
 """
     
-    with open("task_scheduler.py", "w", encoding="utf-8") as f:
+    with open("3_auto_restart.py", "w", encoding="utf-8") as f:
         f.write(task_script)
     
     return True

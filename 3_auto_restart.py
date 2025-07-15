@@ -21,7 +21,7 @@ def restart_bot():
     time.sleep(5)
     
     # Запускаем новый процесс
-    subprocess.Popen(["/bin/bash", "start_pythonanywhere.sh"])
+    subprocess.Popen(["/bin/bash", "2_start.sh"])
 
 def main():
     """Основная функция планировщика"""
