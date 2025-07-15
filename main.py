@@ -177,12 +177,12 @@ async def status_command(message: types.Message):
     """Обработчик команды /status"""
     try:
         present_users = await db.get_present_users()
-        absent_users = await db.get_absent_users()
+        absent_users_count = await db.get_absent_users_count()
         
         status_text = (
             f"📊 *Текущий статус системы*\n\n"
             f"✅ Присутствуют: {present_users}\n"
-            f"❌ Отсутствуют: {absent_users}\n"
+            f"❌ Отсутствуют: {absent_users_count}\n"
             f"🕐 Время: {datetime.now().strftime('%H:%M:%S')}\n"
             f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}"
         )

@@ -809,3 +809,22 @@ class Database:
         except Exception as e:
             logger.error(f"Ошибка проверки права доступа: {e}")
             return False
+
+    async def get_user_info(self, telegram_id: int) -> Optional[Dict]:
+        """Получение полной информации о пользователе в удобном формате для слоя бизнес-логики"""
+        try:
+            user = await self.get_user(telegram_id)
+            if not user:
+                return None
+            # Приводим информацию к единообразной структуре
+            return {
+                'telegram_id': user.get('telegram_id'),
+                'full_name': user.get('name'),
+                'username': user.get('username'),
+                'status': user.get('status', 'в_части'),
+                'location': user.get('location') or 'не указано',
+                'last_status_change': user.get('last_status_change')
+            }
+        except Exception as e:
+            logger.error(f"Ошибка получения информации о пользователе: {e}")
+            return None
