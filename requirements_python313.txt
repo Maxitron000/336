@@ -1,0 +1,25 @@
+# Зависимости для Python 3.13
+# Используем самые новые версии для максимальной совместимости
+
+# Основные зависимости для бота
+python-dotenv==1.0.0
+aiosqlite==0.20.0
+requests==2.31.0
+pytz==2023.3
+
+# Попробуем телеграм бота на asyncio без aiogram
+# Будем использовать python-telegram-bot вместо aiogram
+
+# Альтернативная библиотека для Telegram bot
+python-telegram-bot==20.7
+
+# Планировщик задач
+schedule==1.2.0
+
+# Системные утилиты
+psutil==5.9.6
+watchdog==3.0.0
+
+# Конфигурация
+configparser==6.0.0
+typing_extensions==4.8.0
