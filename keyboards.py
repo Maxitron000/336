@@ -5,6 +5,11 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.callback_data import CallbackData
 
+# Helper to ensure compatibility with aiogram InlineKeyboardMarkup signature
+def build_inline_keyboard(keyboard):
+    """Return InlineKeyboardMarkup with provided inline_keyboard list."""
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 # Callback data для админ-панели
 admin_cb = CallbackData("admin", "action", "subaction")
 user_cb = CallbackData("user", "action")
@@ -24,7 +29,7 @@ def get_soldier_keyboard():
             InlineKeyboardButton("📊 Мой статус", callback_data=user_cb.new("my_status"))
         ]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_commander_keyboard():
     """Клавиатура для командиров - 4 кнопки"""
@@ -38,7 +43,7 @@ def get_commander_keyboard():
             InlineKeyboardButton("⚙️ Админка", callback_data=admin_cb.new("dashboard", ""))
         ]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_admin_keyboard():
     """Главная админская клавиатура - Уровень 1: 🏠 Главное меню"""
@@ -57,7 +62,7 @@ def get_admin_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=user_cb.new("back_to_main"))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_personnel_keyboard():
     """Клавиатура управления личным составом - Уровень 2: Меню «👥 Управление л/с»"""
@@ -72,7 +77,7 @@ def get_personnel_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("back", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_journal_keyboard():
     """Клавиатура журнала событий - Уровень 2: Меню «📖 Журнал событий»"""
@@ -91,7 +96,7 @@ def get_journal_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("back", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_settings_keyboard():
     """Клавиатура настроек - Уровень 2: Меню «⚙️ Настройки»"""
@@ -106,7 +111,7 @@ def get_settings_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("back", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_notifications_settings_keyboard():
     """Клавиатура настроек уведомлений - Уровень 3"""
@@ -125,7 +130,7 @@ def get_notifications_settings_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("settings", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_admin_management_keyboard():
     """Клавиатура управления админами - Уровень 3"""
@@ -144,7 +149,7 @@ def get_admin_management_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("settings", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_danger_zone_keyboard():
     """Клавиатура опасной зоны - Уровень 3: Меню «⚠️ Опасная зона»"""
@@ -159,7 +164,7 @@ def get_danger_zone_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("settings", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_confirmation_keyboard(action: str):
     """Клавиатура подтверждения для опасных операций"""
@@ -169,7 +174,7 @@ def get_confirmation_keyboard(action: str):
             InlineKeyboardButton("❌ Отменить", callback_data=admin_cb.new("cancel", ""))
         ]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_export_keyboard():
     """Клавиатура экспорта данных"""
@@ -188,7 +193,7 @@ def get_export_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("journal", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_location_keyboard():
     """Клавиатура выбора локации для убытия"""
@@ -218,21 +223,21 @@ def get_location_keyboard():
             InlineKeyboardButton("🔙 Отмена", callback_data=user_cb.new("cancel"))
         ]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_back_keyboard():
     """Простая клавиатура с кнопкой назад"""
     keyboard = [
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("back", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_cancel_keyboard():
     """Клавиатура с кнопкой отмены"""
     keyboard = [
         [InlineKeyboardButton("❌ Отмена", callback_data=user_cb.new("cancel"))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_monitoring_keyboard():
     """Клавиатура мониторинга бота - Уровень 2: Меню «🏥 Мониторинг бота»"""
@@ -251,7 +256,7 @@ def get_monitoring_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("back", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_maintenance_keyboard():
     """Клавиатура техобслуживания - Уровень 2: Меню «🔧 Техобслуживание»"""
@@ -282,14 +287,14 @@ def get_maintenance_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("back", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_maintenance_confirmation_keyboard(maintenance_type: str):
     """Клавиатура подтверждения технического обслуживания"""
     keyboard = [
         [InlineKeyboardButton(f"✅ Да, выполнить {maintenance_type}", callback_data=admin_cb.new("maintenance_confirm", maintenance_type))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_initial_status_keyboard():
     """Клавиатура выбора начального статуса при регистрации"""
@@ -299,7 +304,7 @@ def get_initial_status_keyboard():
             InlineKeyboardButton("🚪 Вне части", callback_data=user_cb.new("initial_status_away"))
         ]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_commander_permissions_keyboard(permissions: dict = None):
     """Клавиатура настройки прав командира"""
@@ -347,7 +352,7 @@ def get_commander_permissions_keyboard(permissions: dict = None):
             InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("settings", "admins"))
         ]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_permissions_management_keyboard():
     """Клавиатура управления правами командиров"""
@@ -362,7 +367,7 @@ def get_permissions_management_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("settings", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_journal_filters_keyboard():
     """Клавиатура фильтров журнала"""
@@ -385,7 +390,7 @@ def get_journal_filters_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("journal", ""))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_date_range_keyboard():
     """Клавиатура выбора диапазона дат"""
@@ -404,14 +409,14 @@ def get_date_range_keyboard():
         ],
         [InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("journal", "filters"))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_danger_confirmation_keyboard(action: str):
     """Клавиатура подтверждения опасных действий"""
     keyboard = [
         [InlineKeyboardButton("❌ Отменить", callback_data=admin_cb.new("cancel_danger", action))]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)
 
 def get_text_confirmation_keyboard():
     """Клавиатура после ввода текста подтверждения"""
@@ -421,4 +426,4 @@ def get_text_confirmation_keyboard():
             InlineKeyboardButton("❌ Отменить", callback_data=admin_cb.new("confirm_text", "no"))
         ]
     ]
-    return InlineKeyboardMarkup(keyboard)
+    return build_inline_keyboard(keyboard)

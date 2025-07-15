@@ -218,7 +218,8 @@ class AdminPanel:
         # Кнопка назад
         keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data=admin_cb.new("personnel", ""))])
         
-        return InlineKeyboardMarkup(keyboard)
+        from keyboards import build_inline_keyboard
+        return build_inline_keyboard(keyboard)
     
     # Методы журнала событий (Уровень 2)
     async def get_events_list(self, limit: int = 50) -> List[Dict]:
