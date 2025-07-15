@@ -7,7 +7,10 @@ import re
 import pytz
 from datetime import datetime
 from typing import Dict, List, Optional
-from database import get_user
+from database import Database
+
+# Создаем экземпляр базы данных
+db = Database()
 
 # Локации с эмодзи
 LOCATIONS = {
@@ -85,16 +88,20 @@ def validate_full_name(full_name: str) -> bool:
     
     return bool(re.match(pattern, full_name))
 
-def is_admin(telegram_id: int) -> bool:
+async def is_admin(telegram_id: int) -> bool:
     """Проверка, является ли пользователь администратором"""
     # Проверяем в переменных окружения
     if telegram_id in ADMIN_IDS:
         return True
     
     # Проверяем в базе данных
-    user = get_user(telegram_id)
-    if user and user.get('is_admin'):
-        return True
+    try:
+        await db.init()
+        user = await db.get_user(telegram_id)
+        if user and user.get('is_admin'):
+            return True
+    except Exception:
+        pass
     
     return False
 
