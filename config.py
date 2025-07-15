@@ -9,10 +9,24 @@ class Config:
         # Загружаем переменные окружения
         load_dotenv()
         
+        # Проверяем наличие файла .env
+        if not os.path.exists('.env'):
+            raise FileNotFoundError(
+                "❌ Файл .env не найден!\n"
+                "📋 Создайте файл .env на основе .env.example\n"
+                "🔧 Настройте BOT_TOKEN и ADMIN_IDS\n"
+                "📖 Подробная инструкция в файле КАК_ЗАПУСТИТЬ_БОТА.md"
+            )
+        
         # Основные настройки
         self.BOT_TOKEN = os.getenv('BOT_TOKEN')
-        if not self.BOT_TOKEN:
-            raise ValueError("BOT_TOKEN не найден в переменных окружения")
+        if not self.BOT_TOKEN or self.BOT_TOKEN == 'YOUR_BOT_TOKEN':
+            raise ValueError(
+                "❌ BOT_TOKEN не настроен!\n"
+                "🤖 Получите токен у @BotFather в Telegram\n"
+                "📝 Замените YOUR_BOT_TOKEN в файле .env на реальный токен\n"
+                "💡 Пример: BOT_TOKEN=1234567890:ABCDEF_ваш_токен_бота"
+            )
         
         # Настройки базы данных
         self.DB_PATH = os.getenv('DB_PATH', 'data/bot_database.db')
@@ -44,9 +58,15 @@ class Config:
     def _parse_admin_ids(self):
         """Парсинг ID администраторов"""
         admin_ids_str = os.getenv('ADMIN_IDS', '')
-        if admin_ids_str:
+        if not admin_ids_str or admin_ids_str == 'YOUR_ADMIN_ID':
+            print("⚠️  ADMIN_IDS не настроен. Получите свой ID у @userinfobot")
+            return []
+        
+        try:
             return [int(x.strip()) for x in admin_ids_str.split(',') if x.strip().isdigit()]
-        return []
+        except ValueError:
+            print("❌ Ошибка в формате ADMIN_IDS. Используйте числа через запятую")
+            return []
     
     def _create_directories(self):
         """Создание необходимых директорий"""
