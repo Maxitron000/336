@@ -1,0 +1,10 @@
+github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1 h1:RP6b9Z7SlTjO0NjvJ7ue9GLnvJSBai3wZm3ZgIRpQKc=
+github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1/go.mod h1:PyNDoaJknySmysGu3k5rLQjEd++KRLo1jji8jQyZKUk=
+github.com/xuri/excelize/v2 v2.8.1 h1:60EJISya0BtxHoGLZ2ypAJae18j3SV2EAh3yxzyVNHs=
+github.com/xuri/excelize/v2 v2.8.1/go.mod h1:/fK9SLIhw/hI3VEl2HUGKZTt6QpkKdnB4vttQp8G0LE=
+golang.org/x/net v0.18.0 h1:2CSlgaS4bPJKMS48UzA2RDEk9Q7NXLfIJIGBJtKss1g=
+golang.org/x/net v0.18.0/go.mod h1:EtgbIUHK3EVGLUddjfqO5oPjpo0W/60JgOnMKtFDr0I=
+golang.org/x/sys v0.15.0 h1:R5IPk/yUBnZdAJ5n15xK/1AfmmGmXnVyg9vF1gdkDrc=
+golang.org/x/sys v0.15.0/go.mod h1:NdzKEbI4Te+oZy2KtR6RFi2t7+gGv0eT50hwDJHZv7M=
+golang.org/x/text v0.14.0 h1:kfwS5bN/ntI7gHZniIzANv6rRjS1Bv8IPpqjdrIw8aY=
+golang.org/x/text v0.14.0/go.mod h1:4zCJNczqAzI9f8c0Qk05UjBAfEt9lsLe3Mz3jTBaowM=
